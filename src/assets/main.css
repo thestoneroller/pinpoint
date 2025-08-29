@@ -1,5 +1,11 @@
 @import 'tailwindcss';
 
+@font-face {
+  font-family: "Alpha Lyrae";
+  src: url("@/assets/fonts/AlphaLyrae-Medium.woff2") format("woff2");
+  font-weight: 500;
+}
+
 @theme {
   --color-brand: var(--brand);
   --color-foreground: var(--text-primary);
@@ -8,6 +14,9 @@
   --color-line-secondary: var(--stroke-secondary);
   --color-fill: var(--fill);
   --color-background: var(--background);
+
+  --font-alpha: 'Alpha Lyrae', sans-serif;
+
 }
 
 :root {
