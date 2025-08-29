@@ -1,11 +1,64 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import Navbar from '@/components/NavBar.vue'
+import Icon from '@/components/SvgIcon.vue'
+</script>
 
 <template>
-  <h1 class="text-foreground text-3xl">You did it!</h1>
-  <p class="text-muted-foreground">The wire</p>
+  <div class="flex h-dvh w-full flex-col items-center">
+    <Navbar />
+    <!--  Hero Heading & Subheading -->
+    <div class="mt-30 flex flex-col items-center justify-center gap-4 md:mt-20">
+      <h1
+        class="font-alpha text-foreground xs:text-3xl w-96 text-center text-3xl text-pretty sm:w-[28rem] sm:text-[2rem] md:w-[31rem] md:text-[2.5rem]"
+      >
+        Not your bug. But your problem. Find the fix, fast.
+      </h1>
+      <p
+        class="text-muted-foreground w-64 text-center text-xs text-pretty sm:w-[30rem] sm:text-base md:w-[42rem]"
+      >
+        Discover the fix for the bug you've been chasing all day in your dependencies' GitHub
+        issues.
+      </p>
+    </div>
+    <!-- Prompt -->
+    <div
+      class="border-line-secondary bg-background relative mt-10 flex w-[90vw] flex-col rounded-sm border p-4 drop-shadow-sm md:mt-12 md:w-[48rem]"
+    >
+      <textarea
+        id="hs-textarea-ex-1"
+        class="placeholder:text-muted-foreground text-foreground block resize-none pb-8 text-sm placeholder:text-sm focus:outline-none disabled:pointer-events-none disabled:opacity-50 sm:pb-12 sm:text-base sm:placeholder:text-base"
+        placeholder="Explain the error that’s been driving you crazy…"
+        data-hs-textarea-auto-height=""
+      ></textarea>
 
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="text-foreground h-6 w-6">
-    <path fill="currentColor"
-      d="M5 2h4v2H7v2H5V2Zm0 10H3V6h2v6Zm2 2H5v-2h2v2Zm2 2v-2H7v2H3v-2H1v2h2v2h4v4h2v-4h2v-2H9Zm0 0v2H7v-2h2Zm6-12v2H9V4h6Zm4 2h-2V4h-2V2h4v4Zm0 6V6h2v6h-2Zm-2 2v-2h2v2h-2Zm-2 2v-2h2v2h-2Zm0 2h-2v-2h2v2Zm0 0h2v4h-2v-4Z" />
-  </svg>
+      <!-- Toolbar -->
+      <div class="inset-x-px bottom-px">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <!-- Button Group -->
+          <div class="flex items-center">
+            <button
+              type="button"
+              class="active:bg-fill/70 hover:bg-fill/70 border-line-secondary flex shrink-0 cursor-pointer items-center justify-center gap-1 rounded-sm border px-3 py-2 transition-transform focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98"
+            >
+              <Icon name="github" class="fill-foreground h-4 w-4" />
+              <Icon name="slash" class="fill-foreground h-4 w-4" />
+              <p class="text-foreground text-xs sm:text-sm">Add Repo</p>
+            </button>
+          </div>
+
+          <div class="flex items-center gap-x-1">
+            <button
+              type="button"
+              class="bg-brand hover:bg-brand/90 focus:bg-brand/90 inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-sm text-white transition-transform focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98"
+            >
+              <Icon name="arrow-right" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- <div
+    class="absolute inset-0 -z-10 h-full w-full [background:radial-gradient(200%_200%_at_50%_10%,#fff_40%,#63e_100%)]"
+  ></div> -->
 </template>
