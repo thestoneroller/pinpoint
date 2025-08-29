@@ -1,1 +1,31 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@theme {
+  --color-brand: var(--brand);
+  --color-foreground: var(--text-primary);
+  --color-muted-foreground: var(--text-secondary);
+  --color-line-primary: var(--stroke-primary);
+  --color-line-secondary: var(--stroke-secondary);
+  --color-fill: var(--fill);
+  --color-background: var(--background);
+}
+
+:root {
+  --brand: oklch(48.61% 0.2762 277.09);
+  --text-primary: oklch(24.65% 0.0645 290.04);
+  --text-secondary: oklch(49.16% 0.0558 293.41);
+  --stroke-primary: oklch(61.8% 0.0346 293.34);
+  --stroke-secondary: oklch(92.39% 0.0163 293.74);
+  --fill: oklch(97.23% 0.0067 295.45);
+  --background: oklch(1 0 0);
+}
+
+.dark {
+  --brand: oklch(56.03% 0.2515 283.02);
+  --text-primary: oklch(1 0 0);
+  --text-secondary: oklch(85.63% 0.0152 294.42);
+  --stroke-primary: oklch(67.79% 0.025 293.82);
+  --stroke-secondary: oklch(33.89% 0.0175 294.62);
+  --fill: oklch(24.34% 0.0133 291.94);
+  --background: oklch(18.73% 0.0162 290.47);
+}
