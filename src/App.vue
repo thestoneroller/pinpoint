@@ -1,7 +1,9 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { RouterView } from 'vue-router'
+</script>
 
 <template>
   <div class="flex h-dvh w-full flex-col items-center">
-    <router-view />
+    <RouterView />
   </div>
 </template>
