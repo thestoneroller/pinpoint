@@ -9,15 +9,14 @@ import Icon from '@/components/SvgIcon.vue'
     <!--  Hero Heading & Subheading -->
     <div class="mt-30 flex flex-col items-center justify-center gap-4 md:mt-20">
       <h1
-        class="font-alpha text-foreground xs:text-3xl w-96 text-center text-3xl text-pretty sm:w-[28rem] sm:text-[2rem] md:w-[31rem] md:text-[2.5rem]"
+        class="font-alpha text-foreground xs:text-3xl w-96 text-center text-2xl text-pretty sm:w-[28rem] sm:text-[2rem] md:w-[40rem] md:text-[2.5rem]"
       >
-        Not your bug. But your problem. Find the fix, fast.
+        Find solutions to bugs in external libraries from GitHub issues.
       </h1>
       <p
         class="text-muted-foreground hidden w-64 text-center text-xs text-pretty sm:block sm:w-[30rem] sm:text-base md:w-[43rem]"
       >
-        Discover the fix for the bug you've been chasing all day in your dependencies' GitHub
-        issues.
+        The bug you’ve been stuck on all day isn’t unique. Discover the fix in GitHub issues.
       </p>
     </div>
     <!-- Prompt -->
