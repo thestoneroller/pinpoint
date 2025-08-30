@@ -14,7 +14,7 @@ import Icon from '@/components/SvgIcon.vue'
         Not your bug. But your problem. Find the fix, fast.
       </h1>
       <p
-        class="text-muted-foreground w-64 text-center text-xs text-pretty sm:w-[30rem] sm:text-base md:w-[42rem]"
+        class="text-muted-foreground hidden w-64 text-center text-xs text-pretty sm:block sm:w-[30rem] sm:text-base md:w-[43rem]"
       >
         Discover the fix for the bug you've been chasing all day in your dependencies' GitHub
         issues.
@@ -22,11 +22,11 @@ import Icon from '@/components/SvgIcon.vue'
     </div>
     <!-- Prompt -->
     <div
-      class="border-line-secondary bg-background relative mt-10 flex w-[90vw] flex-col rounded-sm border p-4 drop-shadow-sm md:mt-12 md:w-[48rem]"
+      class="border-line-primary/50 bg-background shadow-fill/80 relative mt-10 flex w-[90vw] flex-col gap-2 rounded-sm border p-4 shadow-sm md:mt-12 md:w-[42rem] lg:w-[48rem]"
     >
       <textarea
         id="hs-textarea-ex-1"
-        class="placeholder:text-muted-foreground text-foreground block resize-none pb-8 text-sm placeholder:text-sm focus:outline-none disabled:pointer-events-none disabled:opacity-50 sm:pb-12 sm:text-base sm:placeholder:text-base"
+        class="placeholder:text-muted-foreground/60 text-foreground block h-20 max-h-24 resize-none pb-8 text-sm placeholder:text-sm focus:outline-none disabled:pointer-events-none disabled:opacity-50 sm:pb-12 sm:text-base sm:placeholder:text-base"
         placeholder="Explain the error that’s been driving you crazy…"
         data-hs-textarea-auto-height=""
       ></textarea>
@@ -38,7 +38,7 @@ import Icon from '@/components/SvgIcon.vue'
           <div class="flex items-center">
             <button
               type="button"
-              class="active:bg-fill/70 hover:bg-fill/70 border-line-secondary flex shrink-0 cursor-pointer items-center justify-center gap-1 rounded-sm border px-3 py-2 transition-transform focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98"
+              class="active:bg-fill/70 hover:bg-fill/70 border-line-primary/60 flex shrink-0 cursor-pointer items-center justify-baseline gap-px rounded-sm border px-3 py-2 transition-transform focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98"
             >
               <Icon name="github" class="fill-foreground h-4 w-4" />
               <Icon name="slash" class="fill-foreground h-4 w-4" />
@@ -46,6 +46,7 @@ import Icon from '@/components/SvgIcon.vue'
             </button>
           </div>
 
+          <!-- Submit Button -->
           <div class="flex items-center gap-x-1">
             <button
               type="button"
@@ -58,7 +59,4 @@ import Icon from '@/components/SvgIcon.vue'
       </div>
     </div>
   </div>
-  <!-- <div
-    class="absolute inset-0 -z-10 h-full w-full [background:radial-gradient(200%_200%_at_50%_10%,#fff_40%,#63e_100%)]"
-  ></div> -->
 </template>

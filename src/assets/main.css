@@ -6,6 +6,11 @@
   font-weight: 500;
 }
 
+@font-face {
+  font-family: "Public Sans";
+  src: url("@/assets/fonts/PublicSans-VariableFont.ttf") format("truetype");
+}
+
 @theme {
   --color-brand: var(--brand);
   --color-foreground: var(--text-primary);
@@ -16,7 +21,6 @@
   --color-background: var(--background);
 
   --font-alpha: 'Alpha Lyrae', sans-serif;
-
 }
 
 :root {
@@ -34,7 +38,11 @@
   --text-primary: oklch(1 0 0);
   --text-secondary: oklch(85.63% 0.0152 294.42);
   --stroke-primary: oklch(67.79% 0.025 293.82);
-  --stroke-secondary: oklch(33.89% 0.0175 294.62);
+  --stroke-secondary: oklch(49.77% 0.0365 293);
   --fill: oklch(24.34% 0.0133 291.94);
-  --background: oklch(18.73% 0.0162 290.47);
+  --background: oklch(0.1679 0.0125 292.64);
+}
+
+body {
+  font-family: 'Public Sans', 'Segoe UI', sans-serif;
 }

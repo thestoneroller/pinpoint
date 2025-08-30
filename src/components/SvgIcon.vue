@@ -1,7 +1,10 @@
-<script lang="ts">
-export default {
-  props: ['name'],
-}
+<script setup lang="ts">
+defineProps({
+  name: {
+    type: String,
+    required: true,
+  },
+})
 </script>
 
 <template>
@@ -97,11 +100,11 @@ export default {
   <!-- Slash Icon -->
   <svg
     v-else-if="name === 'slash'"
-    width="18"
+    width="16"
     height="18"
-    viewBox="0 0 18 18"
+    viewBox="0 0 20 20"
     fill="none"
-    xmlns="http://www.w3.org/2000/svg"
+    stroke-width="1"
   >
     <path d="M6.75 11.25H11.25V2.25H13.5V6.75H9V15.75H6.75" />
   </svg>
