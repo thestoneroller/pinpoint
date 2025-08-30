@@ -26,5 +26,10 @@ export default defineConfigWithVueTs(
     files: ['src/**/__tests__/*'],
   },
   ...pluginOxlint.configs['flat/recommended'],
+  {
+    rules: {
+      'vue/multi-word-component-names': 'off',
+    },
+  },
   prettier,
 )
