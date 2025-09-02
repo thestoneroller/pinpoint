@@ -1,0 +1,12 @@
+[project]
+name = "pinpoint"
+version = "0.1.0"
+description = "Discover answers from github issues"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.116.1",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
+    "uvicorn[standard]>=0.35.0",
+]
