@@ -37,3 +37,4 @@ desktop.ini
 # Python cache
 **/__pycache__/
 /apps/server/.venv
+**/.env
