@@ -35,5 +35,5 @@ desktop.ini
 /apps/web/node_modules
 
 # Python cache
-/apps/backend/__pycache__/
-/apps/backend/.venv
+/apps/api/__pycache__/
+/apps/api/.venv
