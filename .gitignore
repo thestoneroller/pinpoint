@@ -7,7 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
+**/node_modules
 .DS_Store
 dist
 dist-ssr
@@ -28,3 +28,12 @@ coverage
 *.sw?
 
 *.tsbuildinfo
+desktop.ini
+
+# Vue build
+/apps/web/dist
+/apps/web/node_modules
+
+# Python cache
+/apps/backend/__pycache__/
+/apps/backend/.venv
