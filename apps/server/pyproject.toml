@@ -9,4 +9,5 @@ dependencies = [
     "pydantic>=2.11.7",
     "pydantic-settings>=2.10.1",
     "uvicorn[standard]>=0.35.0",
+    "githubkit[all]>=0.13.1",
 ]
