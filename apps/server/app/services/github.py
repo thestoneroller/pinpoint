@@ -1,23 +1,44 @@
 from githubkit import GitHub
-from githubkit.versions.latest.models import IssueSearchResultItem
-from app.core.config import settings
+from githubkit.versions.latest.models import IssueSearchResultItem, IssueComment
+from ..core.config import settings
+from ..exceptions.github_exceptions import handle_github_exceptions
 
 gh = GitHub(settings.GITHUB_TOKEN)
 
 
+@handle_github_exceptions
 async def search_issues(*, repo: str, query: str) -> list[IssueSearchResultItem]:
     """
     Search for issues in a repository and return them.
     """
-    owner, repo_name = repo.split("/")
+    owner, repo = repo.split("/")
 
     resp = await gh.rest.search.async_issues_and_pull_requests(
-        q=f"repo:{owner}/{repo_name} is:issue {query}",
-        sort="created",
+        q=f"repo:{owner}/{repo} is:issue {query}", order="desc", sort="reactions"
     )
 
     issues: list[IssueSearchResultItem] = resp.parsed_data.items
-    for issue in issues:
-        print(f"#{issue.number}: {issue.title}")
 
     return issues
+
+
+async def get_issues_comments(
+    *, repo: str, issue_numbers: list[int]
+) -> list[IssueComment]:
+    """ """
+    owner, repo = repo.split("/")
+
+    repo_comments = await gh.rest.issues.async_list_comments_for_repo(
+        owner=owner, repo=repo
+    )
+
+    issue_base_url = f"https://api.github.com/repos/{owner}/{repo}/issues/"
+    target_issue_urls = {f"{issue_base_url}{issue_num}" for issue_num in issue_numbers}
+
+    issue_comments = [
+        comment
+        for comment in repo_comments.parsed_data
+        if comment.issue_url in target_issue_urls
+    ]
+
+    return issue_comments
