@@ -14,15 +14,15 @@ async def search_issues(
     Search for issues in a repository and return them.
     """
 
-    username, repo = repo.split("/")
     issues = []
 
     for query in queries:
         resp = await gh.rest.search.async_issues_and_pull_requests(
-            q=f"repo:{username}/{repo} is:issue {query} ",
+            q=f"repo:{repo} is:issue {query}",
             order="desc",
             sort="reactions",
         )
+        print(f"repo:{repo} is:issue {query}")
         issues.extend(resp.parsed_data.items)
 
     # Remove duplicate issues
@@ -42,23 +42,18 @@ async def search_issues(
 async def get_issues_comments(
     *, repo: str, issue_numbers: list[int]
 ) -> list[IssueComment]:
-    """ """
+
     username, repo = repo.split("/")
 
-    repo_comments = await gh.rest.issues.async_list_comments_for_repo(
-        owner=username, repo=repo
-    )
+    comments = []
 
-    issue_base_url = f"https://api.github.com/repos/{username}/{repo}/issues/"
-    target_issue_urls = {f"{issue_base_url}{issue_num}" for issue_num in issue_numbers}
+    for issue_num in issue_numbers:
+        resp = await gh.rest.issues.async_list_comments(
+            owner=username, repo=repo, issue_number=issue_num
+        )
+        comments.extend(resp.parsed_data)
 
-    issue_comments = [
-        comment
-        for comment in repo_comments.parsed_data
-        if comment.issue_url in target_issue_urls
-    ]
-
-    return issue_comments
+    return comments
 
 
 async def get_repository(*, technology: str) -> str:

@@ -15,12 +15,12 @@ async def search_stream(*, repo: Optional[str] = None, query: str, request: Requ
     start_time = time.time()
 
     # Use Gemini to generate 3 queries to search in Github Issues
-    queries = await generate_issue_queries(request=request, user_query=query)
-    yield event_message("search_queries", data=queries.model_dump())
+    queries_response = await generate_issue_queries(request=request, user_query=query)
+    yield event_message("search_queries", data=queries_response.model_dump())
 
     # Get repository name
     if not repo:
-        repo = await get_repository(technology=queries.technology)
+        repo = await get_repository(technology=queries_response.technology)
     else:
         repo_exists = await check_repo_exists(repo=repo)
         if not repo_exists:
@@ -29,7 +29,9 @@ async def search_stream(*, repo: Optional[str] = None, query: str, request: Requ
     yield event_message("get_repository", {"repo": repo})
 
     # Search for issues using Github REST API
-    issues, issue_numbers = await search_issues(repo=repo, queries=queries)
+    issues, issue_numbers = await search_issues(
+        repo=repo, queries=queries_response.queries
+    )
     yield event_message("search_issues", {"total_issues": len(issue_numbers)})
 
     comments = await get_issues_comments(repo=repo, issue_numbers=issue_numbers)
