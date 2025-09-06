@@ -3,7 +3,7 @@ name = "pinpoint"
 version = "0.1.0"
 description = "Discover answers from github issues"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.116.1",
     "pydantic>=2.11.7",
