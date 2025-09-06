@@ -1,16 +1,20 @@
 from functools import wraps
-from typing import Callable
+from typing import TypeVar, Callable, Awaitable
 from fastapi import HTTPException
 from githubkit.exception import RequestFailed, RateLimitExceeded, RequestTimeout
 
+R = TypeVar("R")
 
-def handle_github_exceptions(func: Callable) -> Callable:
+
+def handle_github_exceptions(
+    func: Callable[..., Awaitable[R]],
+) -> Callable[..., Awaitable[R]]:
     """
     Decorator to handle GitHub exceptions.
     """
 
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args, **kwargs) -> R:
         try:
             return await func(*args, **kwargs)
         except RequestFailed as e:
