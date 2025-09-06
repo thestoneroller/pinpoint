@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Any, Literal, Annotated
 from pydantic import AnyUrl, BeforeValidator, computed_field
+from pathlib import Path
 
 
 def parse_cors(v: Any) -> list[str] | str:
@@ -11,11 +12,16 @@ def parse_cors(v: Any) -> list[str] | str:
     raise ValueError(v)
 
 
+config_dir = Path(__file__).parent
+env_path = config_dir.parent.parent / ".env"  # apps/server/.env
+abs_env_path = env_path.resolve()
+
+
 class Settings(BaseSettings):
     """Settings for the application."""
 
     model_config = SettingsConfigDict(
-        env_file="../../.env",
+        env_file=abs_env_path,
         env_ignore_empty=True,
         extra="ignore",
     )
