@@ -1,11 +1,7 @@
 import instructor
 from ..models import IssueQueryResult, IssueWithComments
 from fastapi import Request
-from typing import AsyncGenerator, cast, TypedDict
-
-
-class State(TypedDict):
-    llm: instructor.AsyncInstructor
+from typing import AsyncGenerator
 
 
 SYS_PROMPT = """
@@ -62,7 +58,7 @@ async def generate_issue_queries(
 ) -> IssueQueryResult:
     """Analyzes a user query to identify tech stack, intent, and generate GitHub search queries."""
 
-    llm = cast(State, request.state).llm
+    llm: instructor.AsyncInstructor = request.state.llm
 
     response = await llm.messages.create(
         messages=[
@@ -119,7 +115,7 @@ async def generate_streaming_answer(
     """
     Generate a streaming AI response based on user query and collected GitHub data.
     """
-    llm = cast(State, request.state).llm
+    llm: instructor.AsyncInstructor = request.state.llm
 
     prompt = ANSWER_PROMPT.format(
         user_query=user_query, issues_with_comments=issues_with_comments
