@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, HttpUrl
-from typing import List, Annotated, TypedDict
+from typing import List, Annotated, TypedDict, Optional
 from fastapi import Query
 
 
@@ -10,7 +10,7 @@ class IssueQueryResult(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    repo: Annotated[str, Query(pattern=r"^[^/\s]+/[^/\s]+$")]
+    repo: Optional[Annotated[str, Query(pattern=r"^[^/\s]+/[^/\s]+$")]] = None
     query: Annotated[str, Query(min_length=30)]
 
 
