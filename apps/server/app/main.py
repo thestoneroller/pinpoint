@@ -16,7 +16,13 @@ async def lifespan(app: FastAPI):
     yield {"llm": llm}
 
 
-app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    lifespan=lifespan,
+    docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
+    redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
+    openapi_url="/openapi.json" if settings.ENVIRONMENT != "production" else None,
+)
 
 if settings.all_cors_origins:
     app.add_middleware(
