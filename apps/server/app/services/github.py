@@ -42,8 +42,6 @@ async def search_issues(
 
     unique_issues = list(unique_issues.values())
 
-    print([f"{issue.number}- {issue.title}" for issue in unique_issues])
-
     return unique_issues
 
 
@@ -120,7 +118,6 @@ async def get_issues_with_comments(
             }
         )
 
-    print("Top Comments: ", issues_with_comments[:1])
     return issues_with_comments
 
 

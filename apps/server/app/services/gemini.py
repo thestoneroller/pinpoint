@@ -43,22 +43,11 @@ SYS_PROMPT = """
     - "React useEffect not working" → "useEffect not working", "useEffect issue", "effect hook problem"
     - "Tailwind classes not applying" → "classes not applying", "styles not working", "CSS not loading"
 
-    ### 3. Intent Classification
-    Identify the user's primary intent:
-    - `bug_report`: Reporting unexpected behavior or errors
-    - `feature_request`: Seeking new functionality or enhancements  
-    - `help_needed`: Asking for guidance or troubleshooting assistance
-    - `configuration`: Issues with setup, installation, or configuration
-    - `performance`: Performance optimization or speed-related concerns
-    - `compatibility`: Version conflicts or integration issues
-    - `general_info` : General information requests
-
-    ### 4. Confidence Assessment
+    ### 3. Confidence Assessment
     Rate your confidence in the analysis from 0.00 to 1.00:
     - 0.90-1.00: Technology clearly identified, problem well-defined
     - 0.70-0.89: Technology likely correct, problem mostly clear
-    - 0.50-0.69: Some ambiguity in technology or problem description
-    - 0.00-0.49: Significant uncertainty in analysis
+    - 0.50-0.00: Significant uncertainty in analysis
 """
 
 
@@ -81,40 +70,40 @@ async def generate_issue_queries(
 
 
 ANSWER_PROMPT = """
-You are an expert technical assistant providing comprehensive solutions based on GitHub issues and community discussions.
+    You are an expert technical assistant providing comprehensive solutions based on GitHub issues and community discussions.
 
-## Your Task:
-Analyze the provided GitHub issues and comments to generate a detailed, actionable response to the user's query.
+    ## Your Task:
+    Analyze the provided GitHub issues and comments to generate a detailed, actionable response to the user's query.
 
-## Response Guidelines:
+    ## Response Guidelines:
 
-### 1. Solution Structure
-- Provide step-by-step solutions based on the GitHub evidence
-- Include code examples when available from the issues/comments
-- Mention alternative approaches if multiple solutions exist
+    ### 1. Solution Structure
+    - Provide step-by-step solutions based on the GitHub evidence
+    - Include code examples when available from the issues/comments
+    - Mention alternative approaches if multiple solutions exist
 
-### 2. Evidence-Based Responses
-- Reference specific GitHub issues when citing solutions
-- Quote relevant code snippets from comments when helpful
-- Mention issue numbers for user reference
-- Highlight solutions that have been confirmed working by the community
+    ### 2. Evidence-Based Responses
+    - Reference specific GitHub issues when citing solutions
+    - Quote relevant code snippets from comments when helpful
+    - Mention issue numbers for user reference
+    - Highlight solutions that have been confirmed working by the community
 
-### 3. Technical Accuracy
-- Prioritize solutions with high community engagement (reactions, comments)
-- Include version-specific information when mentioned in issues
-- Warn about deprecated or outdated approaches
-- Suggest best practices based on community consensus
+    ### 3. Technical Accuracy
+    - Prioritize solutions with high community engagement (reactions, comments)
+    - Include version-specific information when mentioned in issues
+    - Warn about deprecated or outdated approaches
+    - Suggest best practices based on community consensus
 
-### 4. Response Format
-- Use clear headings and bullet points for readability
-- Format code blocks with appropriate syntax highlighting
-- Include links to relevant GitHub issues when possible
+    ### 4. Response Format
+    - Use clear headings and bullet points for readability
+    - Format code blocks with appropriate syntax highlighting
+    - Include links to relevant GitHub issues when possible
 
-## Context Data:
-- User Query: {user_query}
-- Issues with Comments: {issues_with_comments}
+    ## Context Data:
+    - User Query: {user_query}
+    - Issues with Comments: {issues_with_comments}
 
-Generate a comprehensive, helpful response based on this GitHub community knowledge.
+    Generate a comprehensive, helpful response based on this GitHub community knowledge.
 """
 
 
