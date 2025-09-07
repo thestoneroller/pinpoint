@@ -8,12 +8,12 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.llm = instructor.from_provider(
+    llm = instructor.from_provider(
         "google/gemini-2.5-flash-lite",
         api_key=settings.GOOGLE_API_KEY,
         async_client=True,
     )
-    yield
+    yield {"llm": llm}
 
 
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
