@@ -1,7 +1,6 @@
-from ..models import IssueQueryResult
+from ..models import IssueQueryResult, IssueWithComments
 from fastapi import Request
 from typing import AsyncGenerator
-from githubkit.versions.latest.models import IssueSearchResultItem, IssueComment
 
 SYS_PROMPT = """
     You are an expert technical analyst specializing in identifying software technologies and generating effective GitHub issue search queries.
@@ -62,6 +61,25 @@ SYS_PROMPT = """
     - 0.00-0.49: Significant uncertainty in analysis
 """
 
+
+async def generate_issue_queries(
+    *, request: Request, user_query: str
+) -> IssueQueryResult:
+    """Analyzes a user query to identify tech stack, intent, and generate GitHub search queries."""
+
+    llm = request.app.state.llm
+
+    response = await llm.messages.create(
+        messages=[
+            {"role": "system", "content": SYS_PROMPT},
+            {"role": "user", "content": f"User Query: {user_query}"},
+        ],
+        response_model=IssueQueryResult,
+    )
+
+    return response
+
+
 ANSWER_PROMPT = """
 You are an expert technical assistant providing comprehensive solutions based on GitHub issues and community discussions.
 
@@ -71,7 +89,6 @@ Analyze the provided GitHub issues and comments to generate a detailed, actionab
 ## Response Guidelines:
 
 ### 1. Solution Structure
-- Start with a concise summary of the problem
 - Provide step-by-step solutions based on the GitHub evidence
 - Include code examples when available from the issues/comments
 - Mention alternative approaches if multiple solutions exist
@@ -92,48 +109,24 @@ Analyze the provided GitHub issues and comments to generate a detailed, actionab
 - Use clear headings and bullet points for readability
 - Format code blocks with appropriate syntax highlighting
 - Include links to relevant GitHub issues when possible
-- End with additional resources or related topics if helpful
 
 ## Context Data:
 - User Query: {user_query}
-- GitHub Issues: {issues}
-- Issue Comments: {comments}
+- Issues with Comments: {issues_with_comments}
 
 Generate a comprehensive, helpful response based on this GitHub community knowledge.
 """
 
 
-async def generate_issue_queries(
-    *, request: Request, user_query: str
-) -> IssueQueryResult:
-    """Analyzes a user query to identify tech stack, intent, and generate GitHub search queries."""
-
-    llm = request.app.state.llm
-
-    response = await llm.messages.create(
-        messages=[
-            {"role": "system", "content": SYS_PROMPT},
-            {"role": "user", "content": f"User Query: {user_query}"},
-        ],
-        response_model=IssueQueryResult,
-    )
-
-    return response
-
-
 async def generate_streaming_answer(
-    *,
-    request: Request,
-    user_query: str,
-    issues: list[IssueSearchResultItem],
-    comments: list[IssueComment],
+    *, request: Request, user_query: str, issues_with_comments: list[IssueWithComments]
 ) -> AsyncGenerator[str, None]:
     """
     Generate a streaming AI response based on user query and collected GitHub data.
     """
     llm = request.app.state.llm
     prompt = ANSWER_PROMPT.format(
-        user_query=user_query, issues=issues, comments=comments
+        user_query=user_query, issues_with_comments=issues_with_comments
     )
 
     response = await llm.messages.create(

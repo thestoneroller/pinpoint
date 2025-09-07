@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request
-from ...services.github import search_issues, get_issues_comments, get_repository
+from ...services.github import search_issues, get_issues_with_comments, get_repository
 from ...utils import check_repo_exists, event_message
 from fastapi.responses import StreamingResponse
 from ...services.gemini import generate_issue_queries, generate_streaming_answer
@@ -29,13 +29,13 @@ async def search_stream(*, repo: Optional[str] = None, query: str, request: Requ
     yield event_message("get_repository", {"repo": repo})
 
     # Search for issues using Github REST API
-    issues, issue_numbers = await search_issues(
-        repo=repo, queries=queries_response.queries
-    )
-    yield event_message("search_issues", {"total_issues": len(issue_numbers)})
+    issues = await search_issues(repo=repo, queries=queries_response.queries)
+    yield event_message("search_issues", {"total_issues": len(issues)})
 
-    comments = await get_issues_comments(repo=repo, issue_numbers=issue_numbers)
-    yield event_message("get_issues_comments", {"total_comments": len(comments)})
+    issues_with_comments = await get_issues_with_comments(repo=repo, issues=issues)
+
+    total_comments = sum((len(issue["comments"]) for issue in issues_with_comments))
+    yield event_message("get_issues_comments", {"total_comments": total_comments})
 
     # Use Gemini to generate an answer based on the collected data
     yield event_message(
@@ -46,8 +46,7 @@ async def search_stream(*, repo: Optional[str] = None, query: str, request: Requ
     async for text_chunk in generate_streaming_answer(
         request=request,
         user_query=query,
-        issues=issues,
-        comments=comments,
+        issues_with_comments=issues_with_comments,
     ):
         yield event_message("streaming_answer_chunk", {"text": text_chunk})
 
