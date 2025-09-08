@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, HttpUrl
-from typing import List, Annotated, TypedDict, Optional
+from typing import Annotated, List, Optional, TypedDict
+
 from fastapi import Query
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class IssueQueryResult(BaseModel):

@@ -1,7 +1,9 @@
-from fastapi import HTTPException
-from .services.github import gh
-from .exceptions.github_exceptions import handle_github_exceptions
 import json
+
+from fastapi import HTTPException
+
+from .exceptions.github_exceptions import handle_github_exceptions
+from .services.github import gh
 
 
 @handle_github_exceptions

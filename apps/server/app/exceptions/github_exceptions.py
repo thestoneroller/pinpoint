@@ -1,7 +1,8 @@
 from functools import wraps
-from typing import TypeVar, Callable, Awaitable
+from typing import Awaitable, Callable, TypeVar
+
 from fastapi import HTTPException
-from githubkit.exception import RequestFailed, RateLimitExceeded, RequestTimeout
+from githubkit.exception import RateLimitExceeded, RequestFailed, RequestTimeout
 
 R = TypeVar("R")
 
