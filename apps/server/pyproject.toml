@@ -13,3 +13,8 @@ dependencies = [
     "instructor[google-genai]>=1.11.2",
     "httptools>=0.6.4",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.12",
+]

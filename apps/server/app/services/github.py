@@ -1,9 +1,11 @@
 import asyncio
+
 from githubkit import GitHub
 from githubkit.versions.latest.models import IssueSearchResultItem
-from ..models import CommentData, IssueWithComments
+
 from ..core.config import settings
 from ..exceptions.github_exceptions import handle_github_exceptions
+from ..models import CommentData, IssueWithComments
 
 gh = GitHub(settings.GITHUB_TOKEN)
 

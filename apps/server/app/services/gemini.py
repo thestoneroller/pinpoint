@@ -1,8 +1,9 @@
-import instructor
-from ..models import IssueQueryResult, IssueWithComments
-from fastapi import Request
 from typing import AsyncGenerator
 
+import instructor
+from fastapi import Request
+
+from ..models import IssueQueryResult, IssueWithComments
 
 SYS_PROMPT = """
     You are an expert technical analyst specializing in identifying software technologies and generating effective GitHub issue search queries.

@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Request, Depends
-from ...services.github import search_issues, get_issues_with_comments, get_repository
-from ...utils import check_repo_exists, event_message
-from fastapi.responses import StreamingResponse
-from ...services.gemini import generate_issue_queries, generate_streaming_answer
-from ...models import SearchRequest
-from typing import Optional
 import time
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
+
+from ...models import SearchRequest
+from ...services.gemini import generate_issue_queries, generate_streaming_answer
+from ...services.github import get_issues_with_comments, get_repository, search_issues
+from ...utils import check_repo_exists, event_message
 
 router = APIRouter()
 

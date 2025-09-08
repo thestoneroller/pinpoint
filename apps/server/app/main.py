@@ -1,9 +1,11 @@
+from contextlib import asynccontextmanager
+
 import instructor
 from fastapi import FastAPI
-from .core.config import settings
 from fastapi.middleware.cors import CORSMiddleware
+
 from .api import api_router
-from contextlib import asynccontextmanager
+from .core.config import settings
 
 
 @asynccontextmanager
