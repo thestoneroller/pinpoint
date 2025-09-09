@@ -27,3 +27,18 @@ class IssueWithComments(BaseModel):
     issue_url: HttpUrl = Field(alias="html_url")
     body: str
     comments: List[CommentData]
+
+
+class CitationSource(BaseModel):
+    id: str
+    type: str
+    title: str
+    url: str
+    issue_number: int
+    author: Optional[str] = None
+    preview: Optional[str] = None
+
+
+class SearchResponse(BaseModel):
+    answer: str
+    sources: List[CitationSource]
