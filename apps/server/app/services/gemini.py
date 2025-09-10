@@ -3,6 +3,7 @@ from typing import AsyncGenerator
 import instructor
 from fastapi import Request
 
+from ..exceptions.gemini_exceptions import handle_gemini_exceptions
 from ..models import IssueQueryResult, IssueWithComments, SearchResponse
 
 SYS_PROMPT = """
@@ -54,6 +55,7 @@ SYS_PROMPT = """
 """
 
 
+@handle_gemini_exceptions
 async def generate_issue_queries(
     *, request: Request, user_query: str
 ) -> IssueQueryResult:
@@ -160,6 +162,7 @@ ANSWER_PROMPT = """
 """
 
 
+@handle_gemini_exceptions
 async def generate_streaming_answer(
     *, request: Request, user_query: str, issues_with_comments: list[IssueWithComments]
 ) -> AsyncGenerator[str, None]:
