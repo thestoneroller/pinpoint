@@ -5,7 +5,6 @@ from fastapi import Request
 
 from app.services.gemini import generate_issue_queries, generate_streaming_answer
 
-
 """Unit tests for Gemini service functions."""
 
 
