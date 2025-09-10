@@ -84,13 +84,18 @@ ANSWER_PROMPT = """
         - If a comment is partially relevant, summarize only the useful parts and omit the rest.
         - Prefer newer or widely supported solutions if multiple answers contradict each other.
     3. If no relevant solution exists, state clearly: _"No relevant solutions were found."_ If possible, answer the query with your own knowledge. If the query is incorrect, explain why.
-    4. Cite GitHub issues and comments using sequential numbering starting from [1]:
-        - Use square brackets with sequential numbers, e.g. `word[1]`, `solution[2]`, `approach[3]`.
-        - Do not leave a space between the last word and the citation.
-        - Cite at most three sources per sentence.
-        - Never include citations inside code blocks.
-        - Do not include a References section at the end of your answer.
-        - Each unique source (issue or comment) gets its own sequential number in order of first appearance.
+    
+    4. **CRITICAL CITATION REQUIREMENTS - FOLLOW EXACTLY:**
+        - **MANDATORY**: Cite Github issues or comments using ONLY sequential numbers starting from [1]: [1], [2], [3], [4], etc.
+        - **NEVER** use issue numbers, comment IDs, or any other numbering system
+        - **CORRECT FORMAT**: `word[1]`, `solution[2]`, `approach[3]`
+        - **WRONG FORMAT**: `word[1151]`, `solution[#123]`, `approach[issue-456]`
+        - Do not leave a space between the last word and the citation
+        - Cite at most three sources per sentence
+        - Never include citations inside code blocks
+        - Do not include a References section at the end of your answer
+        - Each unique source (issue or comment) gets its own sequential number in order of first appearance
+        - **EXAMPLE**: "To fix this issue[1], you can use the sticky positioning approach[2]. This solution works well[1] and is widely supported[3]."
             
     5. Write a well-formatted answer that's optimized for readability:
         - Separate your answer into logical sections using level 2 headers (`##`) for sections and bolding (`**`) for subsections.
@@ -147,10 +152,11 @@ ANSWER_PROMPT = """
     - User Query: {user_query}
     - Issues with Comments: {issues_with_comments}
 
-    ## Citation Instructions:
-    When you cite sources, assign them sequential numbers [1], [2], [3], etc. in order of first appearance.
-    Keep track of which sources you've cited so you can reuse the same number for the same source.
-    The backend will use these numbers to create a sources list with clickable links.
+    ## **FINAL CITATION REMINDER - ABSOLUTELY CRITICAL:**
+    **YOU MUST USE SEQUENTIAL NUMBERING: [1], [2], [3], [4], etc.**
+    **NEVER USE ISSUE NUMBERS OR ANY OTHER NUMBERING SYSTEM**
+    **START FROM [1] AND INCREMENT BY 1 FOR EACH NEW SOURCE**
+    **REUSE THE SAME NUMBER FOR THE SAME SOURCE**
 """
 
 
