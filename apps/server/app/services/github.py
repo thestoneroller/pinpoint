@@ -123,9 +123,12 @@ async def get_issues_with_comments(
     return issues_with_comments
 
 
-async def get_repository(*, technology: str) -> str:
+async def get_repository(*, technology: str) -> str | None:
     """ """
     repo = await gh.rest.search.async_repos(
         q=f"{technology}", sort="stars", order="desc"
     )
-    return repo.parsed_data.items[0].full_name
+    items = getattr(repo.parsed_data, "items", None) or []
+    if not items:
+        return None
+    return items[0].full_name
