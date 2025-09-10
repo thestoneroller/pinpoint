@@ -16,5 +16,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "asgi-lifespan>=2.1.0",
+    "httpx>=0.28.1",
+    "pytest>=8.4.2",
     "ruff>=0.12.12",
+    "trio>=0.31.0",
 ]
