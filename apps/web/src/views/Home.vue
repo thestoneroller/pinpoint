@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Navbar from '@/components/NavBar.vue'
 import Icon from '@/components/SvgIcon.vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -8,16 +9,114 @@ const router = useRouter()
 const navigateToSearch = () => {
   router.push('/search/example')
 }
+
+// Typing effect for placeholder
+const typingTexts = [
+  'Explain the error that’s been driving you crazy…',
+  'Paste your stack trace or error message…',
+  'Describe what you already tried…',
+]
+
+const typingSpeed = 50
+const deletingSpeed = 50
+const pauseDuration = 300
+
+const placeholderText = ref('')
+const currentTextIndex = ref(0)
+const currentCharIndex = ref(0)
+const isDeleting = ref(false)
+const isPaused = ref(false)
+let timer: ReturnType<typeof setTimeout> | null = null
+
+const clearTimer = () => {
+  if (timer) clearTimeout(timer)
+  timer = null
+}
+
+const pauseTyping = () => {
+  isPaused.value = true
+  clearTimer()
+}
+
+const resumeTyping = () => {
+  if (isPaused.value) {
+    isPaused.value = false
+    if (!timer) timer = setTimeout(tick, 300)
+  }
+}
+
+const tick = () => {
+  if (isPaused.value) return
+  const fullText = typingTexts[currentTextIndex.value]
+
+  if (isDeleting.value) {
+    if (placeholderText.value.length === 0) {
+      // Move to next phrase
+      isDeleting.value = false
+      currentTextIndex.value = (currentTextIndex.value + 1) % typingTexts.length
+      currentCharIndex.value = 0
+      timer = setTimeout(tick, pauseDuration)
+    } else {
+      placeholderText.value = placeholderText.value.slice(0, -1)
+      timer = setTimeout(tick, deletingSpeed)
+    }
+  } else {
+    if (currentCharIndex.value < fullText.length) {
+      placeholderText.value += fullText[currentCharIndex.value]
+      currentCharIndex.value += 1
+      timer = setTimeout(tick, typingSpeed)
+    } else {
+      // Finished typing, wait, then start deleting
+      timer = setTimeout(() => {
+        if (isPaused.value) return
+        isDeleting.value = true
+        timer = setTimeout(tick, deletingSpeed)
+      }, pauseDuration)
+    }
+  }
+}
+
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+
+const onInput = (e: Event) => {
+  const val = (e.target as HTMLTextAreaElement).value
+  if (val && val.length > 0) {
+    pauseTyping()
+  } else {
+    resumeTyping()
+  }
+}
+
+const onBlur = (e: Event) => {
+  const val = (e.target as HTMLTextAreaElement).value
+  if (!val || val.length === 0) {
+    resumeTyping()
+  }
+}
+
+onMounted(() => {
+  timer = setTimeout(tick, 300)
+
+  // If the textarea is pre-filled (e.g. browser restore), pause immediately
+  const el = textareaRef.value
+  if (el && el.value && el.value.length > 0) {
+    pauseTyping()
+  }
+})
+
+onBeforeUnmount(() => {
+  clearTimer()
+})
 </script>
 
 <template>
   <Navbar />
 
   <!-- Background Gradient -->
-  <div class="absolute inset-0 -z-20 h-dvh w-full overflow-hidden opacity-90">
+  <div class="absolute inset-0 -z-20 h-dvh w-full overflow-hidden opacity-90 dark:opacity-70">
     <div class="absolute inset-0 mt-0 h-full">
       <div
-        class="absolute left-1/2 aspect-square h-[105%] w-[125%] -translate-x-1/2 overflow-hidden sm:-bottom-40 sm:h-full md:w-[100%] lg:w-[100%] xl:w-[100%] 2xl:mx-auto"
+        class="absolute -bottom-96 left-1/2 aspect-square h-[105%] w-[125%] -translate-x-1/2 overflow-hidden sm:-bottom-40 sm:h-full md:w-[100%] lg:w-[100%] xl:w-[100%] 2xl:mx-auto"
         style="
           background-image: url('/background/gradient.png');
           background-size: cover;
@@ -29,7 +128,7 @@ const navigateToSearch = () => {
   </div>
 
   <div
-    class="absolute inset-0 -z-10 opacity-5"
+    class="absolute inset-0 -z-10 opacity-10"
     style="
       background-image: url(/background/grain.png);
       background-size: 100px 100px;
@@ -39,9 +138,10 @@ const navigateToSearch = () => {
   ></div>
 
   <!--  Hero Heading & Subheading -->
-  <div class="mt-30 flex flex-col items-center justify-center gap-4 md:mt-28">
+  <div class="mt-30 flex flex-col items-center justify-center gap-4 md:mt-12">
+    <Icon name="hero-logo" />
     <h1
-      class="xs:text-3xl text-foreground mx-auto line-clamp-1 flex w-fit gap-3 text-center text-2xl tracking-tighter text-pretty sm:w-[28rem] sm:text-[2rem] md:min-w-fit md:text-[3rem]"
+      class="xs:text-3xl text-foreground mx-auto line-clamp-1 flex w-fit gap-3 text-center text-2xl tracking-tighter text-pretty sm:text-[2rem] md:min-w-fit md:text-[3rem]"
     >
       Find solutions from GitHub.
     </h1>
@@ -53,13 +153,17 @@ const navigateToSearch = () => {
   </div>
   <!-- Prompt -->
   <div
-    class="border-line-secondary bg-background relative mt-10 flex w-[90vw] flex-col gap-2 rounded-2xl border p-4 shadow-xl md:mt-12 md:w-[42rem] lg:w-[48rem]"
+    class="border-line-secondary bg-background absolute bottom-4 mt-10 flex w-[90vw] flex-col gap-2 rounded-3xl border p-4 shadow-xl sm:relative md:mt-12 md:w-[42rem] lg:w-[48rem]"
   >
     <textarea
+      ref="textareaRef"
       id="hs-textarea-ex-1"
       class="placeholder:text-muted-foreground/60 text-foreground block h-20 max-h-24 resize-none pb-8 text-sm placeholder:text-sm focus:outline-none disabled:pointer-events-none disabled:opacity-50 sm:pb-12 sm:text-base sm:placeholder:text-base"
-      placeholder="Explain the error that’s been driving you crazy…"
+      autofocus
+      :placeholder="placeholderText"
       data-hs-textarea-auto-height=""
+      @input="onInput"
+      @blur="onBlur"
     ></textarea>
 
     <!-- Toolbar -->
@@ -69,7 +173,7 @@ const navigateToSearch = () => {
         <div class="flex items-center">
           <button
             type="button"
-            class="active:bg-fill border-line-secondary flex shrink-0 cursor-pointer items-center justify-baseline gap-2 rounded-lg border px-4 py-2 transition-all duration-100 hover:shadow-sm focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98"
+            class="active:bg-fill bg-fill/40 border-line-secondary flex shrink-0 cursor-pointer items-center justify-baseline gap-2 rounded-lg border px-4 py-2 transition-all duration-100 hover:shadow-sm focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98"
           >
             <Icon name="github" class="fill-foreground h-4 w-4" />
             <p class="text-foreground text-xs sm:text-sm">Select Repo</p>

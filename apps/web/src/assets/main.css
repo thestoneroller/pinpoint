@@ -24,23 +24,23 @@
 }
 
 :root {
-  --brand: oklch(48.61% 0.2762 277.09);
-  --text-primary: oklch(24.65% 0.0645 290.04);
-  --text-secondary: oklch(49.16% 0.0558 293.41);
-  --stroke-primary: oklch(61.8% 0.0346 293.34);
-  --stroke-secondary: oklch(92.39% 0.0163 293.74);
-  --fill: oklch(97.23% 0.0067 295.45);
+  --brand: oklch(0.5758 0.2424 283.97);
+  --text-primary: oklch(0.202 0.0375 292.38);
+  --text-secondary: oklch(0.4693 0.0467 292.41);
+  --stroke-primary: oklch(0.6004 0.0213 295.57);
+  --stroke-secondary: oklch(0.9423 0.0068 295.45);
+  --fill: oklch(0.9857 0.0026 286.35);
   --background: oklch(1 0 0);
 }
 
 .dark {
-  --brand: oklch(56.03% 0.2515 283.02);
+  --brand: oklch(0.5758 0.2424 283.97);
   --text-primary: oklch(1 0 0);
-  --text-secondary: oklch(85.63% 0.0152 294.42);
-  --stroke-primary: oklch(67.79% 0.025 293.82);
-  --stroke-secondary: oklch(49.77% 0.0365 293);
-  --fill: oklch(24.34% 0.0133 291.94);
-  --background: oklch(16.96% 0.0187 289.34);
+  --text-secondary: oklch(0.8563 0.0152 294.42);
+  --stroke-primary: oklch(0.6779 0.025 293.82);
+  --stroke-secondary: oklch(0.3389 0.0175 294.62);
+  --fill: oklch(0.2434 0.0133 291.94);
+  --background: oklch(0.1873 0.0162 290.47);
 }
 
 body {
