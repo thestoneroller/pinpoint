@@ -1,13 +1,70 @@
 <script setup lang="ts">
 import Navbar from '@/components/NavBar.vue'
 import Icon from '@/components/SvgIcon.vue'
+import RepoSelectModal from '@/components/RepoSelectModal.vue'
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
+// Modal state
+const isModalOpen = ref(false)
+const selectedRepository = ref('')
+
+// Keyboard-aware positioning
+const chatboxBottom = ref('1rem') // 16px default
+
+const updateChatboxPosition = () => {
+  if (!window.visualViewport) return
+
+  const viewportHeight = window.visualViewport.height
+  const windowHeight = window.innerHeight
+  const keyboardHeight = windowHeight - viewportHeight
+
+  // If keyboard is open (viewport is smaller), move chatbox above it
+  if (keyboardHeight > 100) {
+    // 100px threshold to avoid false positives
+    chatboxBottom.value = `${keyboardHeight + 16}px`
+  } else {
+    chatboxBottom.value = '1rem'
+  }
+}
+
+const openModal = () => {
+  isModalOpen.value = true
+}
+
+const closeModal = () => {
+  isModalOpen.value = false
+}
+
+const handleRepositorySelect = (repository: string) => {
+  selectedRepository.value = repository
+  closeModal()
+}
+
 const navigateToSearch = () => {
-  router.push('/search/example')
+  const promptText = textareaRef.value?.value?.trim() || ''
+
+  if (!promptText) {
+    // Focus the textarea if no prompt is entered
+    textareaRef.value?.focus()
+    return
+  }
+
+  // If repository is selected, include it in the search
+  if (selectedRepository.value) {
+    router.push({
+      path: '/search',
+      query: {
+        repo: selectedRepository.value,
+        q: promptText,
+      },
+    })
+  } else {
+    // Default search without specific repository
+    router.push('/search/example')
+  }
 }
 
 // Typing effect for placeholder
@@ -102,10 +159,22 @@ onMounted(() => {
   if (el && el.value && el.value.length > 0) {
     pauseTyping()
   }
+
+  // Listen for keyboard changes
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateChatboxPosition)
+    window.visualViewport.addEventListener('scroll', updateChatboxPosition)
+  }
 })
 
 onBeforeUnmount(() => {
   clearTimer()
+
+  // Clean up keyboard listeners
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', updateChatboxPosition)
+    window.visualViewport.removeEventListener('scroll', updateChatboxPosition)
+  }
 })
 </script>
 
@@ -153,7 +222,8 @@ onBeforeUnmount(() => {
   </div>
   <!-- Prompt -->
   <div
-    class="border-line-secondary bg-background absolute bottom-4 mt-10 flex w-[90vw] flex-col gap-2 rounded-3xl border p-4 shadow-xl sm:relative md:mt-12 md:w-[42rem] lg:w-[48rem]"
+    class="chatbox border-line-secondary bg-background fixed left-1/2 mt-10 flex w-[90vw] -translate-x-1/2 flex-col gap-2 rounded-3xl border p-4 shadow-xl transition-all duration-300 ease-out sm:relative md:mt-12 md:w-[42rem] lg:w-[48rem]"
+    :style="{ bottom: chatboxBottom }"
   >
     <textarea
       ref="textareaRef"
@@ -173,10 +243,16 @@ onBeforeUnmount(() => {
         <div class="flex items-center">
           <button
             type="button"
+            @click="openModal"
             class="active:bg-fill bg-fill/40 border-line-secondary flex shrink-0 cursor-pointer items-center justify-baseline gap-2 rounded-lg border px-4 py-2 transition-all duration-100 hover:shadow-sm focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98"
+            :class="{
+              'bg-brand/10 border-brand/30': selectedRepository,
+            }"
           >
             <Icon name="github" class="fill-foreground h-4 w-4" />
-            <p class="text-foreground text-xs sm:text-sm">Select Repo</p>
+            <p class="text-foreground text-xs sm:text-sm">
+              {{ selectedRepository || 'Select Repo' }}
+            </p>
           </button>
         </div>
 
@@ -193,4 +269,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+
+  <!-- Repository Selection Modal -->
+  <RepoSelectModal :is-open="isModalOpen" @close="closeModal" @submit="handleRepositorySelect" />
 </template>
