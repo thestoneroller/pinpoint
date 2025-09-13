@@ -222,7 +222,7 @@ onBeforeUnmount(() => {
   </div>
   <!-- Prompt -->
   <div
-    class="chatbox border-line-secondary bg-background fixed left-1/2 mt-10 flex w-[90vw] -translate-x-1/2 flex-col gap-2 rounded-3xl border p-4 shadow-xl transition-all duration-300 ease-out sm:relative md:mt-12 md:w-[42rem] lg:w-[48rem]"
+    class="border-line-secondary bg-background absolute mt-10 flex w-[90vw] flex-col gap-2 rounded-3xl border p-4 shadow-xl sm:relative md:mt-12 md:w-[42rem] lg:w-[48rem]"
     :style="{ bottom: chatboxBottom }"
   >
     <textarea
