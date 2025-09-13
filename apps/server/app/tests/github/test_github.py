@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 import pytest
+
 from app.services.github import get_issues_with_comments, get_repository, search_issues
 
 """Unit tests for GitHub service functions."""

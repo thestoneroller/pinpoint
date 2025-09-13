@@ -38,4 +38,4 @@ desktop.ini
 **/__pycache__/
 /apps/server/.venv
 **/.env
-/apps/server/.ruff_cache
+**/.ruff_cache
