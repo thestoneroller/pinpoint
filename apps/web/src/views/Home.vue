@@ -21,9 +21,7 @@ const updateChatboxPosition = () => {
   const windowHeight = window.innerHeight
   const keyboardHeight = windowHeight - viewportHeight
 
-  // If keyboard is open (viewport is smaller), move chatbox above it
   if (keyboardHeight > 100) {
-    // 100px threshold to avoid false positives
     chatboxBottom.value = `${keyboardHeight + 16}px`
   } else {
     chatboxBottom.value = '1rem'
@@ -47,12 +45,10 @@ const navigateToSearch = () => {
   const promptText = textareaRef.value?.value?.trim() || ''
 
   if (!promptText) {
-    // Focus the textarea if no prompt is entered
     textareaRef.value?.focus()
     return
   }
 
-  // If repository is selected, include it in the search
   if (selectedRepository.value) {
     router.push({
       path: '/search',
@@ -62,12 +58,10 @@ const navigateToSearch = () => {
       },
     })
   } else {
-    // Default search without specific repository
-    router.push('/search/example')
+    router.push({ path: '/search', query: { q: promptText } })
   }
 }
 
-// Typing effect for placeholder
 const typingTexts = [
   'Explain the error that’s been driving you crazy…',
   'Paste your stack trace or error message…',
@@ -210,12 +204,12 @@ onBeforeUnmount(() => {
   <div class="mt-30 flex flex-col items-center justify-center gap-4 md:mt-12">
     <Icon name="hero-logo" />
     <h1
-      class="xs:text-3xl text-foreground mx-auto line-clamp-1 flex w-fit gap-3 text-center text-2xl tracking-tighter text-pretty sm:text-[2rem] md:min-w-fit md:text-[3rem]"
+      class="text-foreground mx-auto line-clamp-1 flex w-fit gap-3 text-center text-3xl tracking-tighter text-pretty sm:text-[2rem] md:min-w-fit md:text-[3rem]"
     >
-      Find solutions from GitHub.
+      Find solutions from GitHub
     </h1>
     <p
-      class="text-foreground/80 line-clamp-1 hidden min-w-fit text-center text-xs sm:block sm:text-base"
+      class="text-foreground/80 line-clamp-2 w-64 text-center text-xs sm:line-clamp-1 sm:min-w-fit sm:text-base"
     >
       Search across Github issues and discover how others fixed the same problems.
     </p>

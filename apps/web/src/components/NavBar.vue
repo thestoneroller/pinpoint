@@ -33,7 +33,7 @@ watch(dark, (isDark) => {
   <nav class="flex w-full items-center justify-between gap-2 px-4 py-6 md:px-20">
     <div class="flex items-center justify-center gap-2">
       <Icon name="pinpoint" />
-      <p class="font-alpha text-foreground hidden sm:block sm:text-2xl">pinpoint</p>
+      <p class="font-alpha text-foreground text-xl sm:text-2xl">pinpoint</p>
     </div>
     <div class="flex items-center justify-center gap-4 md:gap-6">
       <a
