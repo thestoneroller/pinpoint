@@ -4,6 +4,7 @@ import Icon from '@/components/SvgIcon.vue'
 import RepoSelectModal from '@/components/RepoSelectModal.vue'
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
+import { generateUniqueEndpointName } from '@/utils/urlUtils'
 
 const router = useRouter()
 
@@ -12,7 +13,7 @@ const isModalOpen = ref(false)
 const selectedRepository = ref('')
 
 // Keyboard-aware positioning
-const chatboxBottom = ref('1rem') // 16px default
+const chatboxBottom = ref('1rem')
 
 const updateChatboxPosition = () => {
   if (!window.visualViewport) return
@@ -49,17 +50,16 @@ const navigateToSearch = () => {
     return
   }
 
-  if (selectedRepository.value) {
-    router.push({
-      path: '/search',
-      query: {
-        repo: selectedRepository.value,
-        q: promptText,
-      },
-    })
-  } else {
-    router.push({ path: '/search', query: { q: promptText } })
-  }
+  const endpoint = generateUniqueEndpointName(promptText)
+
+  router.push({
+    name: 'search',
+    params: { endpoint },
+    state: {
+      query: promptText,
+      repo: selectedRepository.value || null,
+    },
+  })
 }
 
 const typingTexts = [
