@@ -191,4 +191,4 @@ async def generate_streaming_answer(
             yield str(chunk)
     except Exception as e:
         print(f"Error in streaming response: {e}")
-        yield "An error occurred while generating the response. Please try again."
+        yield e.message

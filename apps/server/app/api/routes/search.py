@@ -68,8 +68,8 @@ async def search_stream(search_request: SearchRequest, request: Request):
     )
 
 
-@router.post("/search")
-async def search(request: Request, search_request: SearchRequest = Depends()):
+@router.get("/search")
+async def search_get(request: Request, search_request: SearchRequest = Depends()):
     return StreamingResponse(
         search_stream(search_request=search_request, request=request),
         media_type="text/event-stream",
