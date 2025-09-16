@@ -1,11 +1,22 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import Icon from '@/components/SvgIcon.vue'
 import { useRouter } from 'vue-router'
 
-// Get data from router state (hidden from URL)
+const maxFont = 32 // px
+const minFont = 20 // px
+const lengthForMin = 140 // after 140 chars, stop shrinking
+
+const fontSize = computed(() => {
+  const len = queryText.value.length
+  return Math.max(minFont, maxFont - (len / lengthForMin) * (maxFont - minFont))
+})
+
 const queryText = ref('')
 const selectedRepo = ref('')
+
+const isExpanded = ref(false)
+const shouldShowToggle = computed(() => queryText.value.length > 186)
 
 const router = useRouter()
 
@@ -22,19 +33,140 @@ onMounted(() => {
   if (state?.repo) {
     selectedRepo.value = state.repo
   }
+
+  // Start streaming if we have a valid query
+  if (queryText.value && queryText.value.length >= 20) {
+    startSearchStream()
+  }
 })
 
-const maxFont = 32 // px
-const minFont = 20 // px
-const lengthForMin = 140 // after 80 chars, stop shrinking
+// Streaming state
+const geminiResponse = ref('')
+const isLoading = ref(false)
+const isDone = ref(false)
+const error = ref<string | null>(null)
+let es: EventSource | null = null
 
-const fontSize = computed(() => {
-  const len = queryText.value.length
-  return Math.max(minFont, maxFont - (len / lengthForMin) * (maxFont - minFont))
+// Animated timeline state
+type StepStatus = 'pending' | 'active' | 'done' | 'error'
+const steps = [
+  { key: 'search_queries', label: 'Generating queries' },
+  { key: 'get_repository', label: 'Selecting repository' },
+  { key: 'search_issues', label: 'Searching issues' },
+  { key: 'get_issues_comments', label: 'Fetching comments' },
+  { key: 'generate_streaming_answer', label: 'Generating answer' },
+] as const
+
+const stepStatus = ref<Record<string, StepStatus>>({})
+const metrics = ref({ totalIssues: 0, totalComments: 0, elapsed: 0 })
+
+function resetSteps() {
+  stepStatus.value = Object.fromEntries(steps.map((s) => [s.key, 'pending'])) as Record<
+    string,
+    StepStatus
+  >
+  metrics.value = { totalIssues: 0, totalComments: 0, elapsed: 0 }
+}
+
+async function startSearchStream() {
+  try {
+    isLoading.value = true
+    isDone.value = false
+    error.value = null
+    geminiResponse.value = ''
+    resetSteps()
+
+    // Close any previous connection
+    if (es) {
+      es.close()
+      es = null
+    }
+
+    const params = new URLSearchParams()
+    params.set('query', queryText.value)
+    if (selectedRepo.value) params.set('repo', selectedRepo.value)
+
+    es = new EventSource(`/api/v1/search?${params.toString()}`)
+
+    const parse = <T,>(e: MessageEvent): T | null => {
+      try {
+        return JSON.parse(e.data) as T
+      } catch {
+        return null
+      }
+    }
+
+    es.addEventListener('search_queries', () => {
+      stepStatus.value['search_queries'] = 'active'
+    })
+
+    es.addEventListener('get_repository', (ev) => {
+      stepStatus.value['search_queries'] = 'done'
+      stepStatus.value['get_repository'] = 'active'
+      const payload = parse<{ repo: string }>(ev as MessageEvent)
+      if (payload?.repo) selectedRepo.value = payload.repo
+    })
+
+    es.addEventListener('search_issues', (ev) => {
+      stepStatus.value['get_repository'] = 'done'
+      stepStatus.value['search_issues'] = 'active'
+      const payload = parse<{ total_issues: number }>(ev as MessageEvent)
+      if (payload?.total_issues != null)
+        metrics.value.totalIssues = Number(payload.total_issues) || 0
+    })
+
+    es.addEventListener('get_issues_comments', (ev) => {
+      stepStatus.value['search_issues'] = 'done'
+      stepStatus.value['get_issues_comments'] = 'active'
+      const payload = parse<{ total_comments: number }>(ev as MessageEvent)
+      if (payload?.total_comments != null)
+        metrics.value.totalComments = Number(payload.total_comments) || 0
+    })
+
+    es.addEventListener('generate_streaming_answer_start', () => {
+      stepStatus.value['get_issues_comments'] = 'done'
+      stepStatus.value['generate_streaming_answer'] = 'active'
+    })
+
+    es.addEventListener('streaming_answer_chunk', (ev) => {
+      const payload = parse<{ text: string }>(ev as MessageEvent)
+      if (payload?.text) geminiResponse.value += payload.text
+    })
+
+    es.addEventListener('streaming_answer_end', (ev) => {
+      stepStatus.value['generate_streaming_answer'] = 'done'
+      isLoading.value = false
+      isDone.value = true
+      const payload = parse<{ message?: string; elapsed_time_seconds: number }>(ev as MessageEvent)
+      if (payload?.elapsed_time_seconds != null)
+        metrics.value.elapsed = Number(payload.elapsed_time_seconds) || 0
+      if (es) {
+        es.close()
+        es = null
+      }
+    })
+
+    es.onerror = () => {
+      const activeKey = Object.keys(stepStatus.value).find((k) => stepStatus.value[k] === 'active')
+      if (activeKey) stepStatus.value[activeKey] = 'error'
+      error.value = 'Something went wrong while streaming the answer.'
+      isLoading.value = false
+      if (es) {
+        es.close()
+        es = null
+      }
+    }
+  } catch (e: any) {
+    const activeKey = Object.keys(stepStatus.value).find((k) => stepStatus.value[k] === 'active')
+    if (activeKey) stepStatus.value[activeKey] = 'error'
+    error.value = e?.message || 'Something went wrong while starting the stream.'
+    isLoading.value = false
+  }
+}
+
+onBeforeUnmount(() => {
+  if (es) es.close()
 })
-
-const isExpanded = ref(false)
-const shouldShowToggle = computed(() => queryText.value.length > 186)
 </script>
 
 <template>
@@ -52,6 +184,75 @@ const shouldShowToggle = computed(() => queryText.value.length > 186)
       <div class="grid w-full grid-cols-1 gap-24 lg:grid-cols-12">
         <!-- Main content -->
         <section class="w-full lg:col-span-8">
+          <!-- Activity timeline -->
+          <div class="border-line-secondary bg-background mb-4 rounded-xl border p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <span class="text-sm font-medium">Activity</span>
+              <span class="text-muted-foreground text-xs" v-if="isLoading">Working…</span>
+            </div>
+            <ol class="space-y-3">
+              <li v-for="s in steps" :key="s.key" class="flex items-start gap-3">
+                <span class="mt-0.5 inline-flex h-5 w-5 items-center justify-center">
+                  <template v-if="stepStatus[s.key] === 'done'">
+                    <svg
+                      class="h-4 w-4 text-green-500"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                  </template>
+                  <template v-else-if="stepStatus[s.key] === 'active'">
+                    <Icon name="loading" class="h-4 w-4 animate-spin" />
+                  </template>
+                  <template v-else-if="stepStatus[s.key] === 'error'">
+                    <svg
+                      class="h-4 w-4 text-red-500"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </template>
+                  <template v-else>
+                    <span class="bg-muted-foreground/40 h-2 w-2 rounded-full"></span>
+                  </template>
+                </span>
+                <div class="flex-1 text-sm">
+                  <span
+                    :class="{
+                      'text-foreground': stepStatus[s.key] !== 'pending',
+                      'text-muted-foreground': stepStatus[s.key] === 'pending',
+                    }"
+                    >{{ s.label }}</span
+                  >
+                  <span
+                    v-if="s.key === 'search_issues' && metrics.totalIssues"
+                    class="text-muted-foreground ml-2 text-xs"
+                    >({{ metrics.totalIssues }} issues)</span
+                  >
+                  <span
+                    v-if="s.key === 'get_issues_comments' && metrics.totalComments"
+                    class="text-muted-foreground ml-2 text-xs"
+                    >({{ metrics.totalComments }} comments)</span
+                  >
+                  <span
+                    v-if="s.key === 'generate_streaming_answer' && isDone && metrics.elapsed"
+                    class="text-muted-foreground ml-2 text-xs"
+                    >({{ metrics.elapsed }}s)</span
+                  >
+                </div>
+              </li>
+            </ol>
+          </div>
           <!-- Query -->
           <div class="mt-4 mb-6 w-full space-y-3">
             <div class="group relative" :class="{ 'pb-6': shouldShowToggle }">
@@ -108,7 +309,7 @@ const shouldShowToggle = computed(() => queryText.value.length > 186)
             </div>
           </div>
 
-          <!-- Answer (flattened, Perplexity-like) -->
+          <!-- Answer (dynamic) -->
           <section id="answerSection" class="space-y-4">
             <header class="flex items-center justify-between">
               <div class="text-muted-foreground flex items-center justify-between">
@@ -122,77 +323,8 @@ const shouldShowToggle = computed(() => queryText.value.length > 186)
             </header>
 
             <div class="border-line-secondary text-foreground border-t pt-4 leading-7">
-              <p class="mb-4">
-                Wrap your table in a scroll container and make the header sticky so it stays pinned
-                while rows scroll underneath. Give header cells a solid background and a higher
-                stacking order to avoid bleed-through and ensure smooth separation
-                <a
-                  href="#src-2"
-                  class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                  >[2]</a
-                >.
-              </p>
-
-              <div class="text-muted-foreground mb-3 flex items-center gap-2 text-[13px]">
-                <svg
-                  class="text-muted-foreground h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                  />
-                </svg>
-                <span class="font-medium">Approach</span>
-              </div>
-              <ul class="text-foreground ml-5 list-disc space-y-1 text-[15px]">
-                <li>
-                  Wrap the table with a div that has a fixed height and
-                  <code class="bg-fill rounded px-1 py-0.5 text-[13px]">overflow-y-auto</code>.
-                </li>
-                <li>
-                  Apply <code class="bg-fill rounded px-1 py-0.5 text-[13px]">sticky top-0</code> to
-                  <code class="bg-fill rounded px-1 py-0.5 text-[13px]">&lt;thead&gt;</code> or
-                  header cells and set a solid background
-                  <a
-                    href="#src-2"
-                    class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                    >[2]</a
-                  >.
-                </li>
-                <li>
-                  Use a subtle bottom shadow or divider for depth and set
-                  <code class="bg-fill rounded px-1 py-0.5 text-[13px]">z-10</code> on header cells
-                  <a
-                    href="#src-4"
-                    class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                    >[4]</a
-                  >.
-                </li>
-                <li>
-                  If you're virtualizing rows, keep the header outside the scrollable region and
-                  align columns via grid or measured widths
-                  <a
-                    href="#src-3"
-                    class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                    >[3]</a
-                  >.
-                </li>
-              </ul>
-
-              <p class="mt-4">
-                For virtualization or dynamic content, keep the header separate from the scroll
-                container and sync column widths with CSS grid or measured sizes
-                <a
-                  href="#src-3"
-                  class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                  >[3]</a
-                >.
-              </p>
+              <div v-if="error" class="mb-3 text-sm text-red-500">{{ error }}</div>
+              <div v-else class="whitespace-pre-wrap">{{ geminiResponse }}</div>
             </div>
 
             <!-- Moved Copy to end -->
