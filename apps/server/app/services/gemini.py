@@ -165,7 +165,7 @@ ANSWER_PROMPT = """
 @handle_gemini_exceptions
 async def generate_streaming_answer(
     *, request: Request, user_query: str, issues_with_comments: list[IssueWithComments]
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[dict, None]:
     """
     Generate a streaming AI response based on user query and collected GitHub data.
     """
@@ -188,7 +188,16 @@ async def generate_streaming_answer(
 
     try:
         async for chunk in response:
-            yield chunk.model_dump().get("answer")
+            data = chunk.model_dump()
+            # Stream incremental answer text when available
+            answer = data.get("answer")
+            if answer:
+                yield {"type": "answer", "data": answer}
+
+            # Stream sources when the model provides them (often near the end)
+            sources = data.get("sources")
+            if sources:
+                yield {"type": "sources", "data": sources}
     except Exception as e:
         print(f"Error in streaming response: {e}")
-        yield e.message
+        yield {"type": "error", "data": str(e)}
