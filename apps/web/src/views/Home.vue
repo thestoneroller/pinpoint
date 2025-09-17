@@ -261,7 +261,7 @@ onBeforeUnmount(() => {
             type="button"
             @click="navigateToSearch"
             :disabled="!isValidPrompt"
-            class="bg-brand hover:bg-brand/90 focus:bg-brand/90 disabled:bg-brand/50 inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-white transition-transform focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98 disabled:cursor-not-allowed"
+            class="bg-brand hover:bg-brand/90 focus:bg-brand/90 disabled:bg-brand/50 inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-white transition-transform focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98 disabled:cursor-not-allowed"
           >
             <Icon name="arrow-right" />
           </button>

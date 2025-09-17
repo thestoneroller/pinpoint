@@ -54,7 +54,7 @@ async def search_stream(search_request: SearchRequest, request: Request):
         user_query=search_request.query,
         issues_with_comments=issues_with_comments,
     ):
-        yield event_message("streaming_answer_chunk", {"text": text_chunk})
+        yield event_message("streaming_answer_chunk", text_chunk)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
