@@ -49,12 +49,23 @@ async def search_stream(search_request: SearchRequest, request: Request):
         {"message": "Generating AI response..."},
     )
 
-    async for text_chunk in generate_streaming_answer(
+    async for payload in generate_streaming_answer(
         request=request,
         user_query=search_request.query,
         issues_with_comments=issues_with_comments,
     ):
-        yield event_message("streaming_answer_chunk", text_chunk)
+        if isinstance(payload, dict):
+            kind = payload.get("type")
+            data = payload.get("data")
+            if kind == "answer":
+                yield event_message("streaming_answer_chunk", data)
+            elif kind == "sources":
+                yield event_message("sources_update", data)
+            elif kind == "error":
+                yield event_message("streaming_error", {"message": data})
+        else:
+            # Back-compat: if the generator yields raw text, treat as answer chunk
+            yield event_message("streaming_answer_chunk", payload)
 
     end_time = time.time()
     elapsed_time = end_time - start_time

@@ -51,13 +51,14 @@ let es: EventSource | null = null
 type FeedItem = {
   id: string
   title: string
-  subtitle?: string
   tags?: string[]
   status: 'active' | 'done'
 }
 
 const feedItems = ref<FeedItem[]>([])
 const currentQueries = ref<string[]>([])
+
+const sources = ref<CitationSource[]>([])
 
 function pushFeed(item: Omit<FeedItem, 'id' | 'status'> & { status?: 'active' | 'done' }) {
   const last = feedItems.value[feedItems.value.length - 1]
@@ -66,7 +67,6 @@ function pushFeed(item: Omit<FeedItem, 'id' | 'status'> & { status?: 'active' | 
     id: Math.random().toString(36).slice(2, 10),
     status: item.status ?? 'active',
     title: item.title,
-    subtitle: item.subtitle,
     tags: item.tags,
   })
 }
@@ -78,6 +78,7 @@ async function startSearchStream() {
     error.value = null
     geminiResponse.value = ''
     feedItems.value = []
+    sources.value = []
 
     // Close any previous connection
     if (es) {
@@ -139,6 +140,15 @@ async function startSearchStream() {
       if (payload) geminiResponse.value += payload
     })
 
+    // Receive sources as they become available
+    es.addEventListener('sources_update', (ev) => {
+      const payload = parse<CitationSource[]>(ev as MessageEvent)
+      console.log('sources_update', payload)
+      if (payload && Array.isArray(payload)) {
+        sources.value = payload
+      }
+    })
+
     es.addEventListener('streaming_answer_end', (ev) => {
       const last = feedItems.value[feedItems.value.length - 1]
       if (last) last.status = 'done'
@@ -181,14 +191,13 @@ onBeforeUnmount(() => {
       <!-- Back button -->
       <button
         @click="goBack"
-        class="text-muted-foreground hover:text-foreground mb-2 flex cursor-pointer items-center gap-2 rounded-lg text-sm transition-all duration-200"
+        class="text-muted-foreground hover:text-brand mb-2 flex cursor-pointer items-center gap-2 rounded-lg text-sm transition-all duration-200"
       >
         <Icon name="arrow-left" class="h-4 w-4" />
         <span>Back</span>
       </button>
 
       <div class="grid w-full grid-cols-1 gap-24 lg:grid-cols-12">
-        <!-- Main content -->
         <section class="w-full lg:col-span-8">
           <!-- Query -->
           <div class="mt-4 mb-6 w-full space-y-3">
@@ -307,9 +316,6 @@ onBeforeUnmount(() => {
                               item.status === 'done' ? 'text-muted-foreground' : '',
                             ]"
                           />
-                          <span v-if="item.subtitle" class="text-muted-foreground ml-2">{{
-                            item.subtitle
-                          }}</span>
                         </div>
                         <div v-if="item.tags?.length" class="mt-2 flex flex-wrap gap-2">
                           <span
@@ -351,7 +357,9 @@ onBeforeUnmount(() => {
             <h2 class="text-xl font-semibold tracking-tight">Sources</h2>
             <div class="flex flex-wrap items-center justify-between gap-3 md:gap-4">
               <a
-                href="#"
+                :href="`https://github.com/${selectedRepo}`"
+                target="_blank"
+                rel="noopener noreferrer"
                 class="border-line-secondary bg-fill text-foreground hover:border-brand/30 hover:bg-brand/5 inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-sm transition-transform active:scale-98"
               >
                 <Icon
@@ -364,31 +372,46 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- Source items -->
-          <a
-            id="src-1"
-            href="#"
-            class="border-line-secondary bg-background hover:bg-fill block rounded-xl border transition"
-          >
-            <div class="p-4">
-              <div class="flex items-start gap-4">
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="text-foreground font-medium">WASasquatch</span>
-
-                    <span class="text-muted-foreground text-xs">Issue #1289</span>
-                  </div>
-                  <div class="text-muted-foreground mt-1 line-clamp-2 text-[13px]">
-                    There is no scale for the upscaling node for model based upscaling. This means
-                    most good models will be forcing...
-                  </div>
-                  <div class="text-muted-foreground mt-2 flex items-center gap-2 text-xs">
-                    <Icon name="github" class="h-3 w-3" />
-                    <span>shadcn-ui/ui</span>
+          <div v-if="sources.length === 0" class="text-muted-foreground text-sm">
+            Sources will appear here as the answer streams...
+          </div>
+          <ul v-else class="space-y-3">
+            <li v-for="(s, idx) in sources" :key="s.id + '-' + idx">
+              <a
+                :href="s.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="border-line-secondary bg-background hover:bg-fill block rounded-xl border transition"
+              >
+                <div class="p-4">
+                  <div class="flex items-start gap-4">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-foreground font-medium">{{ s.title }}</span>
+                        <span class="text-muted-foreground text-xs"
+                          >Issue #{{ s.issue_number }}</span
+                        >
+                      </div>
+                      <div
+                        v-if="s.preview"
+                        class="text-muted-foreground mt-1 line-clamp-2 text-[13px]"
+                      >
+                        {{ s.preview }}
+                      </div>
+                      <div class="text-muted-foreground mt-2 flex items-center gap-2 text-xs">
+                        <Icon name="github" class="h-3 w-3" />
+                        <span>{{ selectedRepo }}</span>
+                        <span
+                          class="border-line-secondary text-muted-foreground ml-auto rounded px-1.5 py-0.5 text-[10px]"
+                          >[{{ idx + 1 }}]</span
+                        >
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </a>
+              </a>
+            </li>
+          </ul>
         </aside>
       </div>
     </main>
