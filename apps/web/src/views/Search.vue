@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import Icon from '@/components/SvgIcon.vue'
+import ShinyText from '@/components/ShinyText.vue'
 import { useRouter } from 'vue-router'
 
 const maxFont = 32 // px
@@ -25,7 +26,6 @@ const goBack = () => {
 }
 
 onMounted(() => {
-  // Get data passed through router state
   const state = history.state
   if (state?.query) {
     queryText.value = state.query
@@ -36,7 +36,7 @@ onMounted(() => {
 
   // Start streaming if we have a valid query
   if (queryText.value && queryText.value.length >= 20) {
-    startSearchStream()
+    // startSearchStream()
   }
 })
 
@@ -47,25 +47,28 @@ const isDone = ref(false)
 const error = ref<string | null>(null)
 let es: EventSource | null = null
 
-// Animated timeline state
-type StepStatus = 'pending' | 'active' | 'done' | 'error'
-const steps = [
-  { key: 'search_queries', label: 'Generating queries' },
-  { key: 'get_repository', label: 'Selecting repository' },
-  { key: 'search_issues', label: 'Searching issues' },
-  { key: 'get_issues_comments', label: 'Fetching comments' },
-  { key: 'generate_streaming_answer', label: 'Generating answer' },
-] as const
+// Activity feed (progressive steps)
+type FeedItem = {
+  id: string
+  title: string
+  subtitle?: string
+  tags?: string[]
+  status: 'active' | 'done'
+}
 
-const stepStatus = ref<Record<string, StepStatus>>({})
-const metrics = ref({ totalIssues: 0, totalComments: 0, elapsed: 0 })
+const feedItems = ref<FeedItem[]>([])
+const currentQueries = ref<string[]>([])
 
-function resetSteps() {
-  stepStatus.value = Object.fromEntries(steps.map((s) => [s.key, 'pending'])) as Record<
-    string,
-    StepStatus
-  >
-  metrics.value = { totalIssues: 0, totalComments: 0, elapsed: 0 }
+function pushFeed(item: Omit<FeedItem, 'id' | 'status'> & { status?: 'active' | 'done' }) {
+  const last = feedItems.value[feedItems.value.length - 1]
+  if (last && last.status === 'active') last.status = 'done'
+  feedItems.value.push({
+    id: Math.random().toString(36).slice(2, 10),
+    status: item.status ?? 'active',
+    title: item.title,
+    subtitle: item.subtitle,
+    tags: item.tags,
+  })
 }
 
 async function startSearchStream() {
@@ -74,7 +77,7 @@ async function startSearchStream() {
     isDone.value = false
     error.value = null
     geminiResponse.value = ''
-    resetSteps()
+    feedItems.value = []
 
     // Close any previous connection
     if (es) {
@@ -96,50 +99,57 @@ async function startSearchStream() {
       }
     }
 
-    es.addEventListener('search_queries', () => {
-      stepStatus.value['search_queries'] = 'active'
+    es.addEventListener('search_queries', (ev) => {
+      const payload = parse<{ queries: string[]; technology?: string; confidence?: number }>(
+        ev as MessageEvent,
+      )
+      currentQueries.value = payload?.queries ?? []
+      // Do not show tags for the generating queries step
+      pushFeed({ title: 'Generating queries', tags: currentQueries.value.slice(0, 3) })
     })
 
     es.addEventListener('get_repository', (ev) => {
-      stepStatus.value['search_queries'] = 'done'
-      stepStatus.value['get_repository'] = 'active'
       const payload = parse<{ repo: string }>(ev as MessageEvent)
       if (payload?.repo) selectedRepo.value = payload.repo
+      pushFeed({ title: 'Selecting repository', tags: payload?.repo ? [payload.repo] : undefined })
     })
 
     es.addEventListener('search_issues', (ev) => {
-      stepStatus.value['get_repository'] = 'done'
-      stepStatus.value['search_issues'] = 'active'
       const payload = parse<{ total_issues: number }>(ev as MessageEvent)
-      if (payload?.total_issues != null)
-        metrics.value.totalIssues = Number(payload.total_issues) || 0
+      const issueCount = payload?.total_issues ?? 0
+      pushFeed({
+        title: `Searching ${issueCount} issue${issueCount !== 1 ? 's' : ''}`,
+      })
     })
 
     es.addEventListener('get_issues_comments', (ev) => {
-      stepStatus.value['search_issues'] = 'done'
-      stepStatus.value['get_issues_comments'] = 'active'
       const payload = parse<{ total_comments: number }>(ev as MessageEvent)
-      if (payload?.total_comments != null)
-        metrics.value.totalComments = Number(payload.total_comments) || 0
+      const commentCount = payload?.total_comments ?? 0
+      pushFeed({
+        title: `Reading ${commentCount} comment${commentCount !== 1 ? 's' : ''}`,
+      })
     })
 
     es.addEventListener('generate_streaming_answer_start', () => {
-      stepStatus.value['get_issues_comments'] = 'done'
-      stepStatus.value['generate_streaming_answer'] = 'active'
+      pushFeed({ title: 'Generating answer...' })
     })
 
     es.addEventListener('streaming_answer_chunk', (ev) => {
-      const payload = parse<{ text: string }>(ev as MessageEvent)
-      if (payload?.text) geminiResponse.value += payload.text
+      const payload = parse<string>(ev as MessageEvent)
+      if (payload) geminiResponse.value += payload
     })
 
     es.addEventListener('streaming_answer_end', (ev) => {
-      stepStatus.value['generate_streaming_answer'] = 'done'
+      const last = feedItems.value[feedItems.value.length - 1]
+      if (last) last.status = 'done'
       isLoading.value = false
       isDone.value = true
-      const payload = parse<{ message?: string; elapsed_time_seconds: number }>(ev as MessageEvent)
-      if (payload?.elapsed_time_seconds != null)
-        metrics.value.elapsed = Number(payload.elapsed_time_seconds) || 0
+      const elapsed_time = parse<{ message?: string; elapsed_time_seconds: number }>(
+        ev as MessageEvent,
+      )
+      if (elapsed_time?.elapsed_time_seconds) {
+        console.log(`Answer generated in ${elapsed_time.elapsed_time_seconds} seconds`)
+      }
       if (es) {
         es.close()
         es = null
@@ -147,8 +157,6 @@ async function startSearchStream() {
     })
 
     es.onerror = () => {
-      const activeKey = Object.keys(stepStatus.value).find((k) => stepStatus.value[k] === 'active')
-      if (activeKey) stepStatus.value[activeKey] = 'error'
       error.value = 'Something went wrong while streaming the answer.'
       isLoading.value = false
       if (es) {
@@ -157,8 +165,6 @@ async function startSearchStream() {
       }
     }
   } catch (e: any) {
-    const activeKey = Object.keys(stepStatus.value).find((k) => stepStatus.value[k] === 'active')
-    if (activeKey) stepStatus.value[activeKey] = 'error'
     error.value = e?.message || 'Something went wrong while starting the stream.'
     isLoading.value = false
   }
@@ -184,75 +190,6 @@ onBeforeUnmount(() => {
       <div class="grid w-full grid-cols-1 gap-24 lg:grid-cols-12">
         <!-- Main content -->
         <section class="w-full lg:col-span-8">
-          <!-- Activity timeline -->
-          <div class="border-line-secondary bg-background mb-4 rounded-xl border p-4">
-            <div class="mb-3 flex items-center justify-between">
-              <span class="text-sm font-medium">Activity</span>
-              <span class="text-muted-foreground text-xs" v-if="isLoading">Working…</span>
-            </div>
-            <ol class="space-y-3">
-              <li v-for="s in steps" :key="s.key" class="flex items-start gap-3">
-                <span class="mt-0.5 inline-flex h-5 w-5 items-center justify-center">
-                  <template v-if="stepStatus[s.key] === 'done'">
-                    <svg
-                      class="h-4 w-4 text-green-500"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                  </template>
-                  <template v-else-if="stepStatus[s.key] === 'active'">
-                    <Icon name="loading" class="h-4 w-4 animate-spin" />
-                  </template>
-                  <template v-else-if="stepStatus[s.key] === 'error'">
-                    <svg
-                      class="h-4 w-4 text-red-500"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M18 6L6 18M6 6l12 12" />
-                    </svg>
-                  </template>
-                  <template v-else>
-                    <span class="bg-muted-foreground/40 h-2 w-2 rounded-full"></span>
-                  </template>
-                </span>
-                <div class="flex-1 text-sm">
-                  <span
-                    :class="{
-                      'text-foreground': stepStatus[s.key] !== 'pending',
-                      'text-muted-foreground': stepStatus[s.key] === 'pending',
-                    }"
-                    >{{ s.label }}</span
-                  >
-                  <span
-                    v-if="s.key === 'search_issues' && metrics.totalIssues"
-                    class="text-muted-foreground ml-2 text-xs"
-                    >({{ metrics.totalIssues }} issues)</span
-                  >
-                  <span
-                    v-if="s.key === 'get_issues_comments' && metrics.totalComments"
-                    class="text-muted-foreground ml-2 text-xs"
-                    >({{ metrics.totalComments }} comments)</span
-                  >
-                  <span
-                    v-if="s.key === 'generate_streaming_answer' && isDone && metrics.elapsed"
-                    class="text-muted-foreground ml-2 text-xs"
-                    >({{ metrics.elapsed }}s)</span
-                  >
-                </div>
-              </li>
-            </ol>
-          </div>
           <!-- Query -->
           <div class="mt-4 mb-6 w-full space-y-3">
             <div class="group relative" :class="{ 'pb-6': shouldShowToggle }">
@@ -309,12 +246,12 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- Answer (dynamic) -->
+          <!-- Answer -->
           <section id="answerSection" class="space-y-4">
             <header class="flex items-center justify-between">
               <div class="text-muted-foreground flex items-center justify-between">
-                <div class="flex items-center gap-1">
-                  <Icon name="pinpoint-dark" class="h-4 w-4" />
+                <div class="flex items-center gap-2">
+                  <Icon name="pinpoint-dark" :class="['h-4 w-4', !isDone ? 'pin-rotate' : '']" />
                   <span id="answer-label" class="text-foreground text-sm font-semibold"
                     >Answer</span
                   >
@@ -324,11 +261,77 @@ onBeforeUnmount(() => {
 
             <div class="border-line-secondary text-foreground border-t pt-4 leading-7">
               <div v-if="error" class="mb-3 text-sm text-red-500">{{ error }}</div>
-              <div v-else class="whitespace-pre-wrap">{{ geminiResponse }}</div>
+
+              <!-- Event feed -->
+              <template v-else>
+                <div class="event-feed-container">
+                  <transition-group
+                    v-if="!isDone"
+                    name="fade-slide"
+                    tag="ol"
+                    class="feed-timeline relative space-y-4"
+                  >
+                    <li
+                      v-for="item in feedItems"
+                      :key="item.id"
+                      class="feed-item flex items-start gap-3"
+                    >
+                      <span
+                        class="relative z-10 mt-0.5 inline-flex h-5 w-5 items-center justify-center"
+                      >
+                        <template v-if="item.status === 'done'">
+                          <!-- Static grey dot for completed step -->
+                          <span
+                            class="pulse-dot is-static text-muted-foreground"
+                            aria-hidden="true"
+                          ></span>
+                        </template>
+                        <template v-else>
+                          <!-- Animated brand dot for active step -->
+                          <span
+                            class="pulse-dot force-animate text-brand"
+                            role="status"
+                            aria-label="loading"
+                          ></span>
+                        </template>
+                      </span>
+
+                      <div class="flex-1">
+                        <div class="text-sm">
+                          <ShinyText
+                            :text="item.title"
+                            :disabled="item.status === 'done'"
+                            :speed="1"
+                            :class="[
+                              'font-medium',
+                              item.status === 'done' ? 'text-muted-foreground' : '',
+                            ]"
+                          />
+                          <span v-if="item.subtitle" class="text-muted-foreground ml-2">{{
+                            item.subtitle
+                          }}</span>
+                        </div>
+                        <div v-if="item.tags?.length" class="mt-2 flex flex-wrap gap-2">
+                          <span
+                            v-for="t in item.tags"
+                            :key="t"
+                            class="border-line-secondary bg-fill rounded-full border px-2 py-0.5 text-xs"
+                            >{{ t }}</span
+                          >
+                        </div>
+                      </div>
+                    </li>
+                  </transition-group>
+
+                  <!-- Answer content (streams live) -->
+                  <div v-if="geminiResponse" class="whitespace-pre-wrap">
+                    {{ geminiResponse }}
+                  </div>
+                </div>
+              </template>
             </div>
 
-            <!-- Moved Copy to end -->
-            <div class="border-line-secondary border-t pt-3">
+            <div v-if="isDone" class="border-line-secondary border-t pt-3">
               <div class="flex items-center justify-end">
                 <button
                   id="copyAnswer"
@@ -360,7 +363,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- Source item -->
+          <!-- Source items -->
           <a
             id="src-1"
             href="#"
@@ -391,3 +394,163 @@ onBeforeUnmount(() => {
     </main>
   </div>
 </template>
+
+<style scoped>
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 200ms ease;
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: var(--pulse-size, 8px);
+  height: var(--pulse-size, 8px);
+}
+
+.pulse-dot::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 200%;
+  height: 200%;
+  border-radius: 9999px;
+  background-color: currentColor;
+  opacity: 0.22;
+  transform: translate(-50%, -50%);
+  animation: pulse-ring var(--pulse-duration, 1.25s) cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.pulse-dot::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  background-color: currentColor;
+  box-shadow: 0 0 6px color-mix(in oklab, currentColor 35%, transparent);
+  animation: pulse-dot var(--pulse-duration, 1.25s) cubic-bezier(0.455, 0.03, 0.515, 0.955) -0.4s
+    infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: translate(-50%, -50%) scale(0.33);
+    opacity: 0.22;
+  }
+  80%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-dot {
+  0% {
+    transform: scale(0.8);
+  }
+  50% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(0.8);
+  }
+}
+
+.pulse-dot.is-static::before,
+.pulse-dot.is-static::after {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot:not(.force-animate)::before,
+  .pulse-dot:not(.force-animate)::after {
+    animation: none;
+  }
+}
+
+/* Timeline connectors between dots */
+.feed-timeline {
+  --feed-gap: 16px;
+  --connector-x: 10px;
+  --connector-gap: 6px;
+}
+
+.feed-item {
+  position: relative;
+}
+
+.feed-item::before,
+.feed-item::after {
+  content: '';
+  position: absolute;
+  left: var(--connector-x);
+  width: 2px;
+  background: var(--color-line-secondary);
+  z-index: 0;
+}
+
+.feed-item::before {
+  top: calc(-0.5 * var(--feed-gap));
+  bottom: calc(12px + var(--connector-gap));
+}
+
+.feed-item::after {
+  margin-top: 1px;
+  top: calc(12px + var(--connector-gap));
+  bottom: calc(-0.5 * var(--feed-gap));
+}
+
+/* Hide extraneous segments at the ends */
+.feed-timeline > .feed-item:first-child::before {
+  display: none;
+}
+.feed-timeline > .feed-item:last-child::after {
+  display: none;
+}
+
+/* For completed steps, hide the pulse ring entirely */
+.pulse-dot.is-static::before {
+  display: none;
+}
+.pulse-dot.is-static::after {
+  animation: none;
+}
+
+/* Local icon spin for Answer header */
+@keyframes pin-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.pin-rotate {
+  animation: pin-rotate 1s linear infinite;
+}
+
+/* Event feed fade-in animation */
+.event-feed-container {
+  animation: feed-fade-in 0.4s ease-out;
+}
+
+@keyframes feed-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+</style>

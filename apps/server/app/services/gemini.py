@@ -188,7 +188,7 @@ async def generate_streaming_answer(
 
     try:
         async for chunk in response:
-            yield str(chunk)
+            yield chunk.model_dump().get("answer")
     except Exception as e:
         print(f"Error in streaming response: {e}")
         yield e.message
