@@ -20,6 +20,21 @@ async def search_stream(search_request: SearchRequest, request: Request):
     queries_response = await generate_issue_queries(
         request=request, user_query=search_request.query
     )
+
+    # Check if Gemini determined the query is irrelevant
+    if queries_response.technology == "irrelevant" and queries_response.queries == [
+        "irrelevant"
+    ]:
+        yield event_message(
+            "query_not_relevant",
+            {
+                "message": "This query doesn't appear to be related to technical or coding issues.",
+                "reason": "The query seems to be about general knowledge, personal information, or non-technical topics.",
+                "suggested_rephrase": "Try asking about programming errors, framework issues, or development problems.",
+            },
+        )
+        return
+
     yield event_message("search_queries", data=queries_response.model_dump())
 
     # Get repository name

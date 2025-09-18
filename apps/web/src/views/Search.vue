@@ -43,6 +43,12 @@ const renderedGeminiResponse = computed(() => {
 
 const responseTime = ref<number | null>(null)
 
+// Streaming state
+const isLoading = ref(false)
+const isDone = ref(false)
+const error = ref<string | null>(null)
+let es: EventSource | null = null
+
 onMounted(async () => {
   const state = history.state
   if (state?.query) {
@@ -57,7 +63,6 @@ onMounted(async () => {
     startSearchStream()
   }
 
-  // Initialize Shiki for syntax highlighting
   try {
     md.use(
       await Shiki({
@@ -69,17 +74,10 @@ onMounted(async () => {
     )
   } catch (error) {
     console.error('Failed to load Shiki:', error)
-    // Keep the basic markdown rendering if Shiki fails
   }
 })
 
-// Streaming state
-const isLoading = ref(false)
-const isDone = ref(false)
-const error = ref<string | null>(null)
-let es: EventSource | null = null
-
-// Activity feed (progressive steps)
+// Event feed
 type FeedItem = {
   id: string
   title: string
@@ -140,6 +138,27 @@ async function startSearchStream() {
       currentQueries.value = payload?.queries ?? []
       // Do not show tags for the generating queries step
       pushFeed({ title: 'Generating queries', tags: currentQueries.value.slice(0, 3) })
+    })
+
+    // Handle irrelevant queries
+    es.addEventListener('query_not_relevant', (ev) => {
+      const payload = parse<{
+        message: string
+        reason: string
+        suggested_rephrase?: string
+      }>(ev as MessageEvent)
+
+      if (payload) {
+        error.value = `${payload.message}\n\nReason: ${payload.reason}${
+          payload.suggested_rephrase ? `\n\nSuggestion: ${payload.suggested_rephrase}` : ''
+        }`
+      }
+
+      isLoading.value = false
+      if (es) {
+        es.close()
+        es = null
+      }
     })
 
     es.addEventListener('get_repository', (ev) => {
@@ -220,7 +239,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="bg-background text-foreground min-h-dvh antialiased">
+  <div class="bg-background text-foreground min-h-dvh w-full antialiased">
     <main class="w-full px-4 py-10 md:px-16">
       <!-- Back button -->
       <button
@@ -310,7 +329,9 @@ onBeforeUnmount(() => {
             </header>
 
             <div class="border-line-secondary text-foreground border-t pt-4 leading-7">
-              <div v-if="error" class="mb-3 text-sm text-red-500">{{ error }}</div>
+              <div v-if="error" class="mb-3 text-sm text-red-500">
+                {{ error }}
+              </div>
 
               <!-- Event feed -->
               <template v-else>
@@ -396,41 +417,89 @@ onBeforeUnmount(() => {
 
         <!-- Sidebar: Sources -->
         <aside class="w-full lg:col-span-1">
-          <div class="mb-4 flex items-center justify-between">
+          <div class="mb-4 flex items-center justify-between gap-4">
             <h2 class="text-xl font-semibold tracking-tight">Sources</h2>
             <div class="flex flex-wrap items-center justify-between gap-3 md:gap-4">
+              <div v-if="isLoading && !selectedRepo" class="animate-pulse">
+                <div
+                  class="border-line-secondary bg-fill inline-flex items-center gap-1 rounded-lg border px-2 py-1"
+                >
+                  <div class="bg-line-secondary h-4 w-2 rounded"></div>
+                  <div class="bg-line-secondary h-4 w-20 rounded"></div>
+                </div>
+              </div>
               <a
+                v-else
                 :href="`https://github.com/${selectedRepo}`"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="border-line-secondary bg-fill text-foreground hover:border-brand/30 hover:bg-brand/5 inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-sm transition-transform active:scale-98"
+                class="border-line-secondary bg-fill text-foreground hover:border-brand/30 hover:bg-brand/5 inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-sm transition-transform active:scale-98"
               >
                 <Icon
                   name="github"
                   class="fill-foreground focus:fill-brand/90 h-4 w-4 cursor-pointer transition-transform"
                 />
-                <span class="font-medium">{{ selectedRepo }}</span>
+                <span class="line-clamp-1 max-w-36 overflow-hidden font-medium text-ellipsis">
+                  {{ selectedRepo }}
+                </span>
               </a>
             </div>
           </div>
 
           <!-- Source items -->
-          <div v-if="sources.length === 0" class="text-muted-foreground text-sm">
-            Sources will appear here as the answer streams...
+          <div v-if="isLoading && sources.length === 0" class="space-y-3">
+            <!-- Skeleton loading states for sources -->
+            <div v-for="n in 5" :key="`skeleton-${n}`" class="animate-pulse">
+              <div class="border-line-secondary bg-fill block rounded-xl border shadow-xs">
+                <div class="p-4">
+                  <div class="flex items-start gap-4">
+                    <div class="min-w-0 flex-1 space-y-3">
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="bg-line-secondary h-4 rounded-full" style="width: 70%"></div>
+                        <div class="bg-line-secondary h-3 w-16 rounded-full"></div>
+                      </div>
+                      <div class="space-y-2">
+                        <div class="bg-line-secondary h-3 w-full rounded-full"></div>
+                        <div class="bg-line-secondary h-3 rounded-full" style="width: 80%"></div>
+                      </div>
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <div class="bg-line-secondary h-3 w-3 rounded-full"></div>
+                          <div class="bg-line-secondary h-3 w-20 rounded-full"></div>
+                        </div>
+                        <div class="bg-line-secondary h-4 w-8 rounded"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <ul v-else class="space-y-3">
+          <div
+            v-else-if="!isLoading && sources.length === 0"
+            class="border-line-secondary bg-fill h-full rounded-xl border text-center"
+          >
+            <div class="flex h-full flex-col items-center justify-center gap-3">
+              <Icon name="sad-face" class="text-muted-foreground h-8 w-8" />
+
+              <p class="text-foreground text-sm font-medium">No sources found</p>
+            </div>
+          </div>
+          <ul v-else-if="sources.length > 0" class="space-y-3">
             <li v-for="(s, idx) in sources" :key="s.id + '-' + idx">
               <a
                 :href="s.url"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="border-line-secondary bg-fill hover:bg-brand/10 block rounded-xl border transition"
+                class="border-line-secondary bg-fill hover:border-brand/30 hover:bg-brand/5 rounded-xl border transition"
               >
                 <div class="p-4">
                   <div class="flex items-start gap-4">
                     <div class="min-w-0 flex-1">
                       <div class="flex items-center justify-between gap-2">
-                        <span class="text-foreground font-medium">{{ s.title }}</span>
+                        <span class="text-foreground line-clamp-2 font-medium text-ellipsis">
+                          {{ s.title }}
+                        </span>
                         <span class="text-muted-foreground text-xs"
                           >Issue #{{ s.issue_number }}</span
                         >
@@ -675,7 +744,7 @@ onBeforeUnmount(() => {
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.2;
-  color: hsl(var(--foreground));
+  color: hsl(var(--color-foreground));
 }
 
 :deep(.markdown-content h2) {
@@ -683,7 +752,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   line-height: 1.3;
 
-  color: hsl(var(--foreground));
+  color: hsl(var(--color-foreground));
 }
 
 :deep(.markdown-content h3) {
@@ -691,7 +760,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   line-height: 1.4;
 
-  color: hsl(var(--foreground));
+  color: hsl(var(--color-foreground));
 }
 
 :deep(.markdown-content h4) {
@@ -699,7 +768,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   line-height: 1.4;
 
-  color: hsl(var(--foreground));
+  color: hsl(var(--color-foreground));
 }
 
 :deep(.markdown-content h5) {
@@ -707,7 +776,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   line-height: 1.5;
 
-  color: hsl(var(--foreground));
+  color: hsl(var(--color-foreground));
 }
 
 :deep(.markdown-content h6) {
@@ -715,7 +784,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   line-height: 1.5;
 
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--color-muted-foreground));
 }
 
 /* Paragraph and list spacing - only apply to markdown content */
@@ -758,14 +827,19 @@ onBeforeUnmount(() => {
 }
 
 :deep(.markdown-content blockquote) {
-  border-left: 4px solid hsl(var(--border));
+  border-left: 4px solid hsl(var(--color-line-secondary));
   padding-left: 1rem;
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--color-muted-foreground));
   font-style: italic;
 }
 
 :deep(.markdown-content strong) {
   font-weight: 600;
-  color: hsl(var(--foreground));
+  color: hsl(var(--color-foreground));
+}
+
+:deep(.markdown-content strong) {
+  font-weight: 600;
+  color: hsl(var(--color-foreground));
 }
 </style>
