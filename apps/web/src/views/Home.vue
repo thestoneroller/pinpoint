@@ -213,10 +213,8 @@ onBeforeUnmount(() => {
     >
       Find solutions from GitHub
     </h1>
-    <p
-      class="text-foreground/80 line-clamp-2 w-64 text-center text-xs sm:line-clamp-1 sm:min-w-fit sm:text-base"
-    >
-      Search across Github issues and discover how others fixed the same problems.
+    <p class="text-foreground/80 text-center text-xs sm:min-w-fit sm:text-base">
+      Search across Github issues and discover how others fixed similar problems
     </p>
   </div>
   <!-- Prompt -->
