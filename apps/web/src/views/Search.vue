@@ -3,6 +3,14 @@ import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import Icon from '@/components/SvgIcon.vue'
 import ShinyText from '@/components/ShinyText.vue'
 import { useRouter } from 'vue-router'
+import markdownit from 'markdown-it'
+import Shiki from '@shikijs/markdown-it'
+
+const md = markdownit({
+  linkify: true,
+  html: true,
+  typographer: true,
+})
 
 const maxFont = 32 // px
 const minFont = 20 // px
@@ -25,7 +33,17 @@ const goBack = () => {
   router.go(-1)
 }
 
-onMounted(() => {
+const geminiResponse = ref('')
+const renderedGeminiResponse = computed(() => {
+  if (!geminiResponse.value) return ''
+  // Convert escaped newlines to real newlines and render markdown
+  const normalizedResponse = geminiResponse.value.replace(/\\n/g, '\n')
+  return md.render(normalizedResponse)
+})
+
+const responseTime = ref<number | null>(null)
+
+onMounted(async () => {
   const state = history.state
   if (state?.query) {
     queryText.value = state.query
@@ -36,12 +54,26 @@ onMounted(() => {
 
   // Start streaming if we have a valid query
   if (queryText.value && queryText.value.length >= 20) {
-    // startSearchStream()
+    startSearchStream()
+  }
+
+  // Initialize Shiki for syntax highlighting
+  try {
+    md.use(
+      await Shiki({
+        themes: {
+          light: 'catppuccin-frappe',
+          dark: 'catppuccin-mocha',
+        },
+      }),
+    )
+  } catch (error) {
+    console.error('Failed to load Shiki:', error)
+    // Keep the basic markdown rendering if Shiki fails
   }
 })
 
 // Streaming state
-const geminiResponse = ref('')
 const isLoading = ref(false)
 const isDone = ref(false)
 const error = ref<string | null>(null)
@@ -76,6 +108,7 @@ async function startSearchStream() {
     isLoading.value = true
     isDone.value = false
     error.value = null
+    responseTime.value = null
     geminiResponse.value = ''
     feedItems.value = []
     sources.value = []
@@ -158,7 +191,7 @@ async function startSearchStream() {
         ev as MessageEvent,
       )
       if (elapsed_time?.elapsed_time_seconds) {
-        console.log(`Answer generated in ${elapsed_time.elapsed_time_seconds} seconds`)
+        responseTime.value = elapsed_time.elapsed_time_seconds
       }
       if (es) {
         es.close()
@@ -174,6 +207,7 @@ async function startSearchStream() {
         es = null
       }
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (e: any) {
     error.value = e?.message || 'Something went wrong while starting the stream.'
     isLoading.value = false
@@ -187,7 +221,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="bg-background text-foreground min-h-dvh antialiased">
-    <main class="w-full px-4 py-10 md:px-20">
+    <main class="w-full px-4 py-10 md:px-16">
       <!-- Back button -->
       <button
         @click="goBack"
@@ -197,8 +231,8 @@ onBeforeUnmount(() => {
         <span>Back</span>
       </button>
 
-      <div class="grid w-full grid-cols-1 gap-24 lg:grid-cols-12">
-        <section class="w-full lg:col-span-8">
+      <div class="grid w-full grid-cols-1 gap-8 lg:grid-cols-4">
+        <section class="w-[90%] lg:col-span-3">
           <!-- Query -->
           <div class="mt-4 mb-6 w-full space-y-3">
             <div class="group relative" :class="{ 'pb-6': shouldShowToggle }">
@@ -258,12 +292,19 @@ onBeforeUnmount(() => {
           <!-- Answer -->
           <section id="answerSection" class="space-y-4">
             <header class="flex items-center justify-between">
-              <div class="text-muted-foreground flex items-center justify-between">
+              <div class="text-muted-foreground flex w-full items-baseline justify-between">
                 <div class="flex items-center gap-2">
                   <Icon name="pinpoint-dark" :class="['h-4 w-4', !isDone ? 'pin-rotate' : '']" />
                   <span id="answer-label" class="text-foreground text-sm font-semibold"
                     >Answer</span
                   >
+                </div>
+                <div
+                  v-if="responseTime"
+                  class="text-muted-foreground flex items-center gap-1 text-xs"
+                >
+                  <Icon name="clock" class="h-3 w-3" />
+                  <span>{{ responseTime }}s</span>
                 </div>
               </div>
             </header>
@@ -329,10 +370,12 @@ onBeforeUnmount(() => {
                     </li>
                   </transition-group>
 
-                  <!-- Answer content (streams live) -->
-                  <div v-if="geminiResponse" class="whitespace-pre-wrap">
-                    {{ geminiResponse }}
-                  </div>
+                  <!-- Answer content -->
+                  <div
+                    v-if="geminiResponse"
+                    class="markdown-content space-y-4"
+                    v-html="renderedGeminiResponse"
+                  ></div>
                 </div>
               </template>
             </div>
@@ -352,8 +395,8 @@ onBeforeUnmount(() => {
         </section>
 
         <!-- Sidebar: Sources -->
-        <aside class="space-y-4 lg:sticky lg:top-8 lg:col-span-4">
-          <div class="flex items-center justify-between">
+        <aside class="w-full lg:col-span-1">
+          <div class="mb-4 flex items-center justify-between">
             <h2 class="text-xl font-semibold tracking-tight">Sources</h2>
             <div class="flex flex-wrap items-center justify-between gap-3 md:gap-4">
               <a
@@ -381,7 +424,7 @@ onBeforeUnmount(() => {
                 :href="s.url"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="border-line-secondary bg-background hover:bg-fill block rounded-xl border transition"
+                class="border-line-secondary bg-fill hover:bg-brand/10 block rounded-xl border transition"
               >
                 <div class="p-4">
                   <div class="flex items-start gap-4">
@@ -575,5 +618,154 @@ onBeforeUnmount(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* More ChatGPT-like styling */
+:deep(.markdown-content pre) {
+  background-color: #f8f8f8;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  overflow-x: auto;
+  font-family:
+    'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #24292f;
+}
+
+:global(.dark) :deep(.markdown-content pre) {
+  background-color: #0d1117;
+  border-color: #30363d;
+  color: #e6edf3;
+}
+
+:deep(.markdown-content code) {
+  background-color: var(--color-fill);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family:
+    'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.875rem;
+  color: var(--color-foreground);
+  border: 1px solid var(--color-line-secondary);
+}
+
+:deep(.markdown-content pre code) {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  font-size: 13px;
+}
+
+:global(.dark) :deep(.markdown-content code) {
+  background-color: var(--color-line-secondary);
+  border-color: var(--color-line-secondary);
+}
+
+:global(.dark) :deep(.markdown-content pre code) {
+  background-color: transparent;
+  border: none;
+}
+
+/* Markdown heading styles - only within .markdown-content */
+:deep(.markdown-content h1) {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: hsl(var(--foreground));
+}
+
+:deep(.markdown-content h2) {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+
+  color: hsl(var(--foreground));
+}
+
+:deep(.markdown-content h3) {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
+
+  color: hsl(var(--foreground));
+}
+
+:deep(.markdown-content h4) {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+
+  color: hsl(var(--foreground));
+}
+
+:deep(.markdown-content h5) {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.5;
+
+  color: hsl(var(--foreground));
+}
+
+:deep(.markdown-content h6) {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+
+  color: hsl(var(--muted-foreground));
+}
+
+/* Paragraph and list spacing - only apply to markdown content */
+:deep(.markdown-content p) {
+  line-height: 1.6;
+}
+
+:deep(.markdown-content ul) {
+  padding-left: 1.5rem;
+
+  list-style-type: disc;
+}
+
+:deep(.markdown-content ol) {
+  padding-left: 1.5rem;
+
+  list-style-type: decimal;
+}
+
+:deep(.markdown-content ul ul) {
+  list-style-type: circle;
+}
+
+:deep(.markdown-content ul ul ul) {
+  list-style-type: square;
+}
+
+:deep(.markdown-content ol ol) {
+  list-style-type: lower-alpha;
+}
+
+:deep(.markdown-content ol ol ol) {
+  list-style-type: lower-roman;
+}
+
+:deep(.markdown-content li) {
+  line-height: 1.6;
+  margin: 0.75rem 0;
+  display: list-item;
+}
+
+:deep(.markdown-content blockquote) {
+  border-left: 4px solid hsl(var(--border));
+  padding-left: 1rem;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+:deep(.markdown-content strong) {
+  font-weight: 600;
+  color: hsl(var(--foreground));
 }
 </style>

@@ -182,22 +182,19 @@ async def generate_streaming_answer(
                 "content": prompt,
             },
         ],
-        stream=True,
         response_model=SearchResponse,
     )
 
     try:
-        async for chunk in response:
-            data = chunk.model_dump()
-            # Stream incremental answer text when available
-            answer = data.get("answer")
-            if answer:
-                yield {"type": "answer", "data": answer}
+        data = response.model_dump()
 
-            # Stream sources when the model provides them (often near the end)
-            sources = data.get("sources")
-            if sources:
-                yield {"type": "sources", "data": sources}
+        answer = data.get("answer")
+        if answer:
+            yield {"type": "answer", "data": answer}
+
+        sources = data.get("sources")
+        if sources:
+            yield {"type": "sources", "data": sources}
     except Exception as e:
-        print(f"Error in streaming response: {e}")
+        print(f"Error in response: {e}")
         yield {"type": "error", "data": str(e)}
