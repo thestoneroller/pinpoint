@@ -1,32 +1,6 @@
 <script setup lang="ts">
 import Icon from '@/components/SvgIcon.vue'
-import { ref, watch, onMounted } from 'vue'
-
-const dark = ref(false)
-
-const setTheme = (isDark: boolean) => {
-  dark.value = isDark
-  if (isDark) {
-    document.documentElement.classList.add('dark')
-    localStorage.setItem('theme', 'dark')
-  } else {
-    document.documentElement.classList.remove('dark')
-    localStorage.setItem('theme', 'light')
-  }
-}
-
-onMounted(() => {
-  const savedTheme = localStorage.getItem('theme')
-  if (savedTheme) {
-    setTheme(savedTheme === 'dark')
-  } else {
-    setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches)
-  }
-})
-
-watch(dark, (isDark) => {
-  setTheme(isDark)
-})
+import { dark, setTheme } from '@/utils/themeUtils'
 </script>
 
 <template>

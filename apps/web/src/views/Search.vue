@@ -5,6 +5,7 @@ import ShinyText from '@/components/ShinyText.vue'
 import { useRouter } from 'vue-router'
 import markdownit from 'markdown-it'
 import Shiki from '@shikijs/markdown-it'
+import { dark, setTheme } from '@/utils/themeUtils'
 
 const md = markdownit({
   linkify: true,
@@ -33,12 +34,66 @@ const goBack = () => {
   router.go(-1)
 }
 
+// Ensure markdown links open in a new tab safely
+const defaultLinkOpen =
+  md.renderer.rules.link_open ||
+  function (tokens, idx, options, env, self) {
+    return self.renderToken(tokens, idx, options)
+  }
+
+md.renderer.rules.link_open = function (tokens, idx: number, options, env, self) {
+  const token = tokens[idx]
+
+  const targetIndex = token.attrIndex('target')
+  if (targetIndex < 0) token.attrPush(['target', '_blank'])
+  else if (token.attrs) token.attrs[targetIndex][1] = '_blank'
+
+  const relIndex = token.attrIndex('rel')
+  if (relIndex < 0) token.attrPush(['rel', 'noopener noreferrer'])
+  else if (token.attrs) token.attrs[relIndex][1] = 'noopener noreferrer'
+
+  // Tag citation links whose text is purely digits: 1..999
+  const next = tokens[idx + 1]
+  const isCitation = next && next.type === 'text' && /^\s*\d{1,3}\s*$/.test(String(next.content))
+  if (isCitation) {
+    const classIndex = token.attrIndex('class')
+    if (classIndex < 0) token.attrPush(['class', 'citation-link'])
+    else if (token.attrs) token.attrs[classIndex][1] += ' citation-link'
+  }
+
+  return defaultLinkOpen(tokens, idx, options, env, self)
+}
+
 const geminiResponse = ref('')
 const renderedGeminiResponse = computed(() => {
   if (!geminiResponse.value) return ''
-  // Convert escaped newlines to real newlines and render markdown
+
   const normalizedResponse = geminiResponse.value.replace(/\\n/g, '\n')
-  return md.render(normalizedResponse)
+
+  let text = normalizedResponse
+
+  // Convert any [1, 2] => [1][2]
+  text = text.replace(/\[\s*(\d+(?:\s*,\s*\d+)+)\s*\]/g, (_m, list) => {
+    const nums = String(list).split(/\s*,\s*/)
+    return nums.map((n: string) => `[${n}]`).join('')
+  })
+
+  // Convert any [#1] or #[1] => [1]
+  text = text
+    .replace(/\[\s*#\s*(\d{1,3})\s*\]/g, '[$1]')
+    .replace(/#\s*\[\s*(\d{1,3})\s*\]/g, '[$1]')
+
+  // Convert citations [n] to their source URLs
+  const linked = sources.value.length
+    ? text.replace(/\[(\d{1,3})\]/g, (m, n) => {
+        const idx = Number(n) - 1
+        const src = sources.value[idx]
+        // Only link when the index maps to an existing source, otherwise just chill out
+        return src?.url ? `[${n}](${src.url})` : m
+      })
+    : text
+
+  return md.render(linked)
 })
 
 const responseTime = ref<number | null>(null)
@@ -161,6 +216,26 @@ async function startSearchStream() {
       }
     })
 
+    // Provided repo is invalid/non-existent -> let the user know and continue
+    es.addEventListener('repo_invalid', (ev) => {
+      const payload = parse<{ provided?: string }>(ev as MessageEvent)
+      pushFeed({
+        title: 'Provided repository is invalid — selecting a suitable repo',
+        tags: payload?.provided ? [payload.provided] : undefined,
+      })
+    })
+
+    // Handle generic streaming errors (e.g., invalid repo -> fallback failure, etc.)
+    es.addEventListener('streaming_error', (ev) => {
+      const payload = parse<{ message?: string }>(ev as MessageEvent)
+      error.value = payload?.message || 'Something went wrong.'
+      isLoading.value = false
+      if (es) {
+        es.close()
+        es = null
+      }
+    })
+
     es.addEventListener('get_repository', (ev) => {
       const payload = parse<{ repo: string }>(ev as MessageEvent)
       if (payload?.repo) selectedRepo.value = payload.repo
@@ -242,13 +317,20 @@ onBeforeUnmount(() => {
   <div class="bg-background text-foreground min-h-dvh w-full antialiased">
     <main class="w-full px-4 py-10 md:px-16">
       <!-- Back button -->
-      <button
-        @click="goBack"
-        class="text-muted-foreground hover:text-brand mb-2 flex cursor-pointer items-center gap-2 rounded-lg text-sm transition-all duration-200"
-      >
-        <Icon name="arrow-left" class="h-4 w-4" />
-        <span>Back</span>
-      </button>
+      <div class="mb-2 flex w-full items-baseline justify-between">
+        <button
+          @click="goBack"
+          class="text-muted-foreground hover:text-brand flex cursor-pointer items-center gap-2 rounded-lg text-sm transition-all duration-200"
+        >
+          <Icon name="arrow-left" class="h-4 w-4" />
+          <span>Back</span>
+        </button>
+        <Icon
+          @click="setTheme(!dark)"
+          :name="dark ? 'light-theme' : 'dark-theme'"
+          class="fill-foreground hover:fill-brand/90 active:fill-brand/90 focus:fill-brand/90 dark:hover:fill-brand/100 h-5 w-5 cursor-pointer transition-transform active:translate-y-px active:scale-98"
+        />
+      </div>
 
       <div class="grid w-full grid-cols-1 gap-8 lg:grid-cols-4">
         <section class="w-[90%] lg:col-span-3">
@@ -308,7 +390,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- Answer -->
           <section id="answerSection" class="space-y-4">
             <header class="flex items-center justify-between">
               <div class="text-muted-foreground flex w-full items-baseline justify-between">
@@ -394,7 +475,7 @@ onBeforeUnmount(() => {
                   <!-- Answer content -->
                   <div
                     v-if="geminiResponse"
-                    class="markdown-content space-y-4"
+                    class="markdown-content text-foreground space-y-4"
                     v-html="renderedGeminiResponse"
                   ></div>
                 </div>
@@ -416,7 +497,7 @@ onBeforeUnmount(() => {
         </section>
 
         <!-- Sidebar: Sources -->
-        <aside class="w-full lg:col-span-1">
+        <aside class="mt-4 w-full lg:col-span-1">
           <div class="mb-4 flex items-center justify-between gap-4">
             <h2 class="text-xl font-semibold tracking-tight">Sources</h2>
             <div class="flex flex-wrap items-center justify-between gap-3 md:gap-4">
@@ -487,22 +568,17 @@ onBeforeUnmount(() => {
           </div>
           <ul v-else-if="sources.length > 0" class="space-y-3">
             <li v-for="(s, idx) in sources" :key="s.id + '-' + idx">
-              <a
-                :href="s.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="border-line-secondary bg-fill hover:border-brand/30 hover:bg-brand/5 rounded-xl border transition"
-              >
-                <div class="p-4">
+              <a :href="s.url" target="_blank" rel="noopener noreferrer">
+                <div
+                  class="border-line-secondary bg-fill hover:border-brand/30 hover:bg-brand/5 rounded-xl border p-4 transition"
+                >
                   <div class="flex items-start gap-4">
                     <div class="min-w-0 flex-1">
-                      <div class="flex items-center justify-between gap-2">
+                      <div class="flex items-baseline justify-between">
                         <span class="text-foreground line-clamp-2 font-medium text-ellipsis">
                           {{ s.title }}
                         </span>
-                        <span class="text-muted-foreground text-xs"
-                          >Issue #{{ s.issue_number }}</span
-                        >
+                        <span class="text-muted-foreground text-xs">#{{ s.issue_number }}</span>
                       </div>
                       <div
                         v-if="s.preview"
@@ -511,11 +587,11 @@ onBeforeUnmount(() => {
                         {{ s.preview }}
                       </div>
                       <div class="text-muted-foreground mt-2 flex items-center gap-2 text-xs">
-                        <Icon name="github" class="h-3 w-3" />
+                        <Icon name="github" class="text-foreground fill-foreground h-3 w-3" />
                         <span>{{ selectedRepo }}</span>
                         <span
-                          class="border-line-secondary text-muted-foreground ml-auto rounded px-1.5 py-0.5 text-[10px]"
-                          >[{{ idx + 1 }}]</span
+                          class="border-line-secondary text-foreground bg-line-secondary ml-auto rounded-full px-1.5 py-0.5 text-[10px]"
+                          >{{ idx + 1 }}</span
                         >
                       </div>
                     </div>
@@ -692,7 +768,6 @@ onBeforeUnmount(() => {
 /* More ChatGPT-like styling */
 :deep(.markdown-content pre) {
   background-color: #f8f8f8;
-  border: 1px solid #e5e5e5;
   border-radius: 6px;
   padding: 12px 16px;
   margin: 12px 0;
@@ -841,5 +916,43 @@ onBeforeUnmount(() => {
 :deep(.markdown-content strong) {
   font-weight: 600;
   color: hsl(var(--color-foreground));
+}
+
+/* Link styles inside markdown content */
+:deep(.markdown-content a) {
+  color: var(--color-brand);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition:
+    color 150ms ease,
+    text-decoration-color 150ms ease;
+}
+
+:deep(.markdown-content a:hover) {
+  text-decoration-color: color-mix(in oklab, var(--color-brand) 60%, transparent);
+}
+
+:deep(.markdown-content a.citation-link) {
+  color: white;
+  text-decoration: none;
+  background-color: var(--color-brand);
+  opacity: 0.9;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: 0 2px;
+  font-size: 0.85em;
+  line-height: 1;
+  vertical-align: baseline;
+}
+
+:deep(.markdown-content a.citation-link:hover) {
+  background-color: var(--color-brand);
+  opacity: 0.7;
+}
+
+:deep(.markdown-content a.citation-link:focus-visible) {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
 }
 </style>
