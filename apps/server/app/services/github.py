@@ -20,22 +20,27 @@ async def search_issues(
 
     issue_tasks = []
 
+    # Wrap individual API calls so failures don't bubble up and break the TaskGroup
+    async def _search_single(query: str):
+        try:
+            return await gh.rest.search.async_issues_and_pull_requests(
+                q=f"repo:{repo} is:issue {query}", order="desc", sort="reactions"
+            )
+        except Exception:
+            return None
+
     async with asyncio.TaskGroup() as tg:
         for query in queries:
-            issue_task = tg.create_task(
-                gh.rest.search.async_issues_and_pull_requests(
-                    q=f"repo:{repo} is:issue {query}",
-                    order="desc",
-                    sort="reactions",
-                )
-            )
-            issue_tasks.append(issue_task)
+            task = tg.create_task(_search_single(query))
+            issue_tasks.append(task)
 
     issues = []
     unique_issues = {}
 
     for task in issue_tasks:
         response = task.result()
+        if response is None:
+            continue
         issues.extend(response.parsed_data.items)
 
     for issue in issues:
@@ -70,19 +75,24 @@ async def get_issues_with_comments(
     # To calculate how many issues to process to stay within total limit so we don't exceed Gemini's 250K TPM Limit
     max_issues = min(len(issue_numbers), max_total_comments // max_comments_per_issue)
 
+    # Wrap comment fetch so failures don't bubble up and break the TaskGroup
+    async def _fetch_comments(issue_num: int):
+        try:
+            return await gh.rest.issues.async_list_comments(
+                owner=username,
+                repo=repo_name,
+                issue_number=issue_num,
+                page=1,
+                per_page=100,
+            )
+        except Exception:
+            return None
+
     comment_tasks = []
 
     async with asyncio.TaskGroup() as tg:
         for issue_num in issue_numbers[:max_issues]:
-            task = tg.create_task(
-                gh.rest.issues.async_list_comments(
-                    owner=username,
-                    repo=repo_name,
-                    issue_number=issue_num,
-                    page=1,
-                    per_page=100,
-                )
-            )
+            task = tg.create_task(_fetch_comments(issue_num))
             comment_tasks.append((issue_num, task))
 
     def get_reaction_count(comment) -> int:
@@ -95,6 +105,9 @@ async def get_issues_with_comments(
     for issue_num, task in comment_tasks:
         issue = issue_map[issue_num]
         response = task.result()
+        if response is None:
+            # Skip issues whose comments couldn't be fetched
+            continue
         issue_comments = response.parsed_data
 
         # Sort by reaction count and take top comments for this issue

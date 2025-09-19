@@ -1,6 +1,6 @@
 import time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ...models import SearchRequest
@@ -37,23 +37,57 @@ async def search_stream(search_request: SearchRequest, request: Request):
 
     yield event_message("search_queries", data=queries_response.model_dump())
 
-    # Get repository name
+    # Determine repository with safe fallback
     if not search_request.repo:
         repo = await get_repository(technology=queries_response.technology)
     else:
-        repo_exists = await check_repo_exists(repo=search_request.repo)
-        if not repo_exists:
-            repo = await get_repository(technology=search_request.repo)
-        else:
+        try:
+            await check_repo_exists(repo=search_request.repo)
             repo = search_request.repo
+        except HTTPException as he:
+            # For invalid/non-existent repo (404/422), fall back to auto-selection
+            if he.status_code in (404, 422):
+                # Inform client we are falling back
+                yield event_message("repo_invalid", {"provided": search_request.repo})
+                repo = await get_repository(technology=queries_response.technology)
+            else:
+                # For other errors (auth/rate-limit), notify client and stop
+                yield event_message("streaming_error", {"message": he.detail})
+                return
+
+    # If still no repository could be determined, stop nicely
+    if not repo:
+        yield event_message(
+            "streaming_error",
+            {"message": "No suitable repository found for this query."},
+        )
+        return
 
     yield event_message("get_repository", {"repo": repo})
 
     # Search for issues using Github REST API
-    issues = await search_issues(repo=repo, queries=queries_response.queries)
+    try:
+        issues = await search_issues(repo=repo, queries=queries_response.queries)
+    except HTTPException as he:
+        yield event_message("streaming_error", {"message": he.detail})
+        return
+    except Exception:
+        yield event_message("streaming_error", {"message": "Failed to search issues."})
+        return
+
     yield event_message("search_issues", {"total_issues": len(issues)})
 
-    issues_with_comments = await get_issues_with_comments(repo=repo, issues=issues)
+    # Get comments
+    try:
+        issues_with_comments = await get_issues_with_comments(repo=repo, issues=issues)
+    except HTTPException as he:
+        yield event_message("streaming_error", {"message": he.detail})
+        return
+    except Exception:
+        yield event_message(
+            "streaming_error", {"message": "Failed to fetch issue comments."}
+        )
+        return
 
     total_comments = sum((len(issue["comments"]) for issue in issues_with_comments))
     yield event_message("get_issues_comments", {"total_comments": total_comments})
