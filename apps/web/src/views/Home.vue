@@ -2,7 +2,7 @@
 import Navbar from '@/components/NavBar.vue'
 import Icon from '@/components/SvgIcon.vue'
 import RepoSelectModal from '@/components/RepoSelectModal.vue'
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { generateUniqueEndpointName } from '@/utils/urlUtils'
 
@@ -14,6 +14,9 @@ const selectedRepository = ref('')
 
 // Keyboard-aware positioning
 const chatboxBottom = ref('1rem')
+
+const userText = ref('')
+const isValidPrompt = computed(() => userText.value.trim().length >= 20)
 
 const updateChatboxPosition = () => {
   if (!window.visualViewport) return
@@ -43,9 +46,9 @@ const handleRepositorySelect = (repository: string) => {
 }
 
 const navigateToSearch = () => {
-  const promptText = textareaRef.value?.value?.trim() || ''
+  const promptText = userText.value.trim()
 
-  if (!promptText) {
+  if (!isValidPrompt.value) {
     textareaRef.value?.focus()
     return
   }
@@ -131,6 +134,7 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
 const onInput = (e: Event) => {
   const val = (e.target as HTMLTextAreaElement).value
+  userText.value = val
   if (val && val.length > 0) {
     pauseTyping()
   } else {
@@ -152,6 +156,7 @@ onMounted(() => {
   const el = textareaRef.value
   if (el && el.value && el.value.length > 0) {
     pauseTyping()
+    userText.value = el.value
   }
 
   // Listen for keyboard changes
@@ -208,10 +213,8 @@ onBeforeUnmount(() => {
     >
       Find solutions from GitHub
     </h1>
-    <p
-      class="text-foreground/80 line-clamp-2 w-64 text-center text-xs sm:line-clamp-1 sm:min-w-fit sm:text-base"
-    >
-      Search across Github issues and discover how others fixed the same problems.
+    <p class="text-foreground/80 text-center text-xs sm:min-w-fit sm:text-base">
+      Search across Github issues and discover how others fixed similar problems
     </p>
   </div>
   <!-- Prompt -->
@@ -255,7 +258,8 @@ onBeforeUnmount(() => {
           <button
             type="button"
             @click="navigateToSearch"
-            class="bg-brand hover:bg-brand/90 focus:bg-brand/90 inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-white transition-transform focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98"
+            :disabled="!isValidPrompt"
+            class="bg-brand hover:bg-brand/90 focus:bg-brand/90 disabled:bg-brand/50 inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-white transition-transform focus:z-10 focus:outline-hidden active:translate-y-px active:scale-98 disabled:cursor-not-allowed"
           >
             <Icon name="arrow-right" />
           </button>

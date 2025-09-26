@@ -39,7 +39,7 @@ defineProps({
     xmlns="http://www.w3.org/2000/svg"
     width="16"
     height="16"
-    class="fill-foreground"
+    :class="['fill-foreground', $attrs.class]"
   >
     <g>
       <path
@@ -257,6 +257,31 @@ defineProps({
   >
     <path
       d="M3 3h2v18H3V3zm16 0H5v2h14v14H5v2h16V3h-2zm-8 6h2V7h-2v2zm2 8h-2v-6h2v6z"
+      fill="currentColor"
+    />
+  </svg>
+  <svg
+    v-else-if="name === 'clock'"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+  >
+    <path
+      d="M19 3H5v2H3v14h2v2h14v-2h2V5h-2V3zm0 2v14H5V5h14zm-8 2h2v6h4v2h-6V7z"
+      fill="currentColor"
+    />
+  </svg>
+  <svg
+    v-else-if="name === 'sad-face'"
+    xmlns="http://www.w3.org/2000/svg"
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+  >
+    <path
+      d="M5 3h14v2H5V3zm0 16H3V5h2v14zm14 0v2H5v-2h14zm0 0h2V5h-2v14zM10 8H8v2h2V8zm4 0h2v2h-2V8zm-5 8v-2h6v2h2v-2h-2v-2H9v2H7v2h2z"
       fill="currentColor"
     />
   </svg>

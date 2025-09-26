@@ -9,7 +9,24 @@ from ..models import IssueQueryResult, IssueWithComments, SearchResponse
 SYS_PROMPT = """
     You are an expert technical analyst specializing in identifying software technologies and generating effective GitHub issue search queries.
     
-    ## Your Task: 
+    ## IMPORTANT: Query Relevance Check
+    **FIRST**, determine if the user's query is relevant to technical/coding issues:
+    
+    **RELEVANT queries** (programming, frameworks, libraries, configuration, bugs, errors, development tools, technical topics):
+    - Continue with normal analysis below
+    
+    **IRRELEVANT queries** (general knowledge, personal information, non-technical topics, trivia):
+    - IMMEDIATELY return: technology: "irrelevant", queries: ["irrelevant"], confidence: 0.0
+    
+    **Examples:**
+    "how old is react framework" → RELEVANT (framework history)
+    "python not working" → RELEVANT (programming issue) 
+    "docker build failed" → RELEVANT (development tool)
+    "how old is barack obama" → IRRELEVANT (personal information)
+    "best pizza in nyc" → IRRELEVANT (food/location)
+    "weather today" → IRRELEVANT (general information)
+    
+    ## Your Task (only for RELEVANT queries): 
     Analyze the user's problem description and extract actionable information for finding GitHub solutions.
 
     ## Required Analysis:
@@ -165,7 +182,7 @@ ANSWER_PROMPT = """
 @handle_gemini_exceptions
 async def generate_streaming_answer(
     *, request: Request, user_query: str, issues_with_comments: list[IssueWithComments]
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[dict, None]:
     """
     Generate a streaming AI response based on user query and collected GitHub data.
     """
@@ -182,13 +199,19 @@ async def generate_streaming_answer(
                 "content": prompt,
             },
         ],
-        stream=True,
         response_model=SearchResponse,
     )
 
     try:
-        async for chunk in response:
-            yield str(chunk)
+        data = response.model_dump()
+
+        answer = data.get("answer")
+        if answer:
+            yield {"type": "answer", "data": answer}
+
+        sources = data.get("sources")
+        if sources:
+            yield {"type": "sources", "data": sources}
     except Exception as e:
-        print(f"Error in streaming response: {e}")
-        yield "An error occurred while generating the response. Please try again."
+        print(f"Error in response: {e}")
+        yield {"type": "error", "data": str(e)}

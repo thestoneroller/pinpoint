@@ -9,7 +9,7 @@ export function generateEndpointName(query: string): string {
       .replace(/[^a-z0-9]+/g, '-')
       // Remove leading/trailing hyphens
       .replace(/^-+|-+$/g, '')
-      .substring(0, 60)
+      .substring(0, 20)
       // Remove trailing hyphen if substring cut in middle of word
       .replace(/-+$/, '')
   )
@@ -19,9 +19,5 @@ export function generateUniqueEndpointName(query: string): string {
   const baseEndpoint = generateEndpointName(query)
   const timestamp = Date.now().toString(36)
 
-  if (baseEndpoint.length < 10) {
-    return `${baseEndpoint}-${timestamp}`
-  }
-
-  return baseEndpoint
+  return `${baseEndpoint}-${timestamp}`
 }

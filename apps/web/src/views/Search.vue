@@ -1,11 +1,32 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import Icon from '@/components/SvgIcon.vue'
+import ShinyText from '@/components/ShinyText.vue'
 import { useRouter } from 'vue-router'
+import markdownit from 'markdown-it'
+import Shiki from '@shikijs/markdown-it'
+import { dark, setTheme } from '@/utils/themeUtils'
 
-// Get data from router state (hidden from URL)
+const md = markdownit({
+  linkify: true,
+  html: true,
+  typographer: true,
+})
+
+const maxFont = 32 // px
+const minFont = 20 // px
+const lengthForMin = 140 // after 140 chars, stop shrinking
+
+const fontSize = computed(() => {
+  const len = queryText.value.length
+  return Math.max(minFont, maxFont - (len / lengthForMin) * (maxFont - minFont))
+})
+
 const queryText = ref('')
 const selectedRepo = ref('')
+
+const isExpanded = ref(false)
+const shouldShowToggle = computed(() => queryText.value.length > 186)
 
 const router = useRouter()
 
@@ -13,8 +34,77 @@ const goBack = () => {
   router.go(-1)
 }
 
-onMounted(() => {
-  // Get data passed through router state
+// Ensure markdown links open in a new tab safely
+const defaultLinkOpen =
+  md.renderer.rules.link_open ||
+  function (tokens, idx, options, env, self) {
+    return self.renderToken(tokens, idx, options)
+  }
+
+md.renderer.rules.link_open = function (tokens, idx: number, options, env, self) {
+  const token = tokens[idx]
+
+  const targetIndex = token.attrIndex('target')
+  if (targetIndex < 0) token.attrPush(['target', '_blank'])
+  else if (token.attrs) token.attrs[targetIndex][1] = '_blank'
+
+  const relIndex = token.attrIndex('rel')
+  if (relIndex < 0) token.attrPush(['rel', 'noopener noreferrer'])
+  else if (token.attrs) token.attrs[relIndex][1] = 'noopener noreferrer'
+
+  // Tag citation links whose text is purely digits: 1..999
+  const next = tokens[idx + 1]
+  const isCitation = next && next.type === 'text' && /^\s*\d{1,3}\s*$/.test(String(next.content))
+  if (isCitation) {
+    const classIndex = token.attrIndex('class')
+    if (classIndex < 0) token.attrPush(['class', 'citation-link'])
+    else if (token.attrs) token.attrs[classIndex][1] += ' citation-link'
+  }
+
+  return defaultLinkOpen(tokens, idx, options, env, self)
+}
+
+const geminiResponse = ref('')
+const renderedGeminiResponse = computed(() => {
+  if (!geminiResponse.value) return ''
+
+  const normalizedResponse = geminiResponse.value.replace(/\\n/g, '\n')
+
+  let text = normalizedResponse
+
+  // Convert any [1, 2] => [1][2]
+  text = text.replace(/\[\s*(\d+(?:\s*,\s*\d+)+)\s*\]/g, (_m, list) => {
+    const nums = String(list).split(/\s*,\s*/)
+    return nums.map((n: string) => `[${n}]`).join('')
+  })
+
+  // Convert any [#1] or #[1] => [1]
+  text = text
+    .replace(/\[\s*#\s*(\d{1,3})\s*\]/g, '[$1]')
+    .replace(/#\s*\[\s*(\d{1,3})\s*\]/g, '[$1]')
+
+  // Convert citations [n] to their source URLs
+  const linked = sources.value.length
+    ? text.replace(/\[(\d{1,3})\]/g, (m, n) => {
+        const idx = Number(n) - 1
+        const src = sources.value[idx]
+        // Only link when the index maps to an existing source, otherwise just chill out
+        return src?.url ? `[${n}](${src.url})` : m
+      })
+    : text
+
+  return md.render(linked)
+})
+
+const responseTime = ref<number | null>(null)
+
+// Streaming state
+const isLoading = ref(false)
+const isDone = ref(false)
+const error = ref<string | null>(null)
+let es: EventSource | null = null
+
+onMounted(async () => {
   const state = history.state
   if (state?.query) {
     queryText.value = state.query
@@ -22,36 +112,228 @@ onMounted(() => {
   if (state?.repo) {
     selectedRepo.value = state.repo
   }
+
+  // Start streaming if we have a valid query
+  if (queryText.value && queryText.value.length >= 20) {
+    startSearchStream()
+  }
+
+  try {
+    md.use(
+      await Shiki({
+        themes: {
+          light: 'catppuccin-frappe',
+          dark: 'catppuccin-mocha',
+        },
+      }),
+    )
+  } catch (error) {
+    console.error('Failed to load Shiki:', error)
+  }
 })
 
-const maxFont = 32 // px
-const minFont = 20 // px
-const lengthForMin = 140 // after 80 chars, stop shrinking
+// Event feed
+type FeedItem = {
+  id: string
+  title: string
+  tags?: string[]
+  status: 'active' | 'done'
+}
 
-const fontSize = computed(() => {
-  const len = queryText.value.length
-  return Math.max(minFont, maxFont - (len / lengthForMin) * (maxFont - minFont))
+const feedItems = ref<FeedItem[]>([])
+const currentQueries = ref<string[]>([])
+
+const sources = ref<CitationSource[]>([])
+
+function pushFeed(item: Omit<FeedItem, 'id' | 'status'> & { status?: 'active' | 'done' }) {
+  const last = feedItems.value[feedItems.value.length - 1]
+  if (last && last.status === 'active') last.status = 'done'
+  feedItems.value.push({
+    id: Math.random().toString(36).slice(2, 10),
+    status: item.status ?? 'active',
+    title: item.title,
+    tags: item.tags,
+  })
+}
+
+async function startSearchStream() {
+  try {
+    isLoading.value = true
+    isDone.value = false
+    error.value = null
+    responseTime.value = null
+    geminiResponse.value = ''
+    feedItems.value = []
+    sources.value = []
+
+    // Close any previous connection
+    if (es) {
+      es.close()
+      es = null
+    }
+
+    const params = new URLSearchParams()
+    params.set('query', queryText.value)
+    if (selectedRepo.value) params.set('repo', selectedRepo.value)
+
+    es = new EventSource(`/api/v1/search?${params.toString()}`)
+
+    const parse = <T,>(e: MessageEvent): T | null => {
+      try {
+        return JSON.parse(e.data) as T
+      } catch {
+        return null
+      }
+    }
+
+    es.addEventListener('search_queries', (ev) => {
+      const payload = parse<{ queries: string[]; technology?: string; confidence?: number }>(
+        ev as MessageEvent,
+      )
+      currentQueries.value = payload?.queries ?? []
+      // Do not show tags for the generating queries step
+      pushFeed({ title: 'Generating queries', tags: currentQueries.value.slice(0, 3) })
+    })
+
+    // Handle irrelevant queries
+    es.addEventListener('query_not_relevant', (ev) => {
+      const payload = parse<{
+        message: string
+        reason: string
+        suggested_rephrase?: string
+      }>(ev as MessageEvent)
+
+      if (payload) {
+        error.value = `${payload.message}\n\nReason: ${payload.reason}${
+          payload.suggested_rephrase ? `\n\nSuggestion: ${payload.suggested_rephrase}` : ''
+        }`
+      }
+
+      isLoading.value = false
+      if (es) {
+        es.close()
+        es = null
+      }
+    })
+
+    // Provided repo is invalid/non-existent -> let the user know and continue
+    es.addEventListener('repo_invalid', (ev) => {
+      const payload = parse<{ provided?: string }>(ev as MessageEvent)
+      pushFeed({
+        title: 'Provided repository is invalid — selecting a suitable repo',
+        tags: payload?.provided ? [payload.provided] : undefined,
+      })
+    })
+
+    // Handle generic streaming errors (e.g., invalid repo -> fallback failure, etc.)
+    es.addEventListener('streaming_error', (ev) => {
+      const payload = parse<{ message?: string }>(ev as MessageEvent)
+      error.value = payload?.message || 'Something went wrong.'
+      isLoading.value = false
+      if (es) {
+        es.close()
+        es = null
+      }
+    })
+
+    es.addEventListener('get_repository', (ev) => {
+      const payload = parse<{ repo: string }>(ev as MessageEvent)
+      if (payload?.repo) selectedRepo.value = payload.repo
+      pushFeed({ title: 'Selecting repository', tags: payload?.repo ? [payload.repo] : undefined })
+    })
+
+    es.addEventListener('search_issues', (ev) => {
+      const payload = parse<{ total_issues: number }>(ev as MessageEvent)
+      const issueCount = payload?.total_issues ?? 0
+      pushFeed({
+        title: `Searching ${issueCount} issue${issueCount !== 1 ? 's' : ''}`,
+      })
+    })
+
+    es.addEventListener('get_issues_comments', (ev) => {
+      const payload = parse<{ total_comments: number }>(ev as MessageEvent)
+      const commentCount = payload?.total_comments ?? 0
+      pushFeed({
+        title: `Reading ${commentCount} comment${commentCount !== 1 ? 's' : ''}`,
+      })
+    })
+
+    es.addEventListener('generate_streaming_answer_start', () => {
+      pushFeed({ title: 'Generating answer...' })
+    })
+
+    es.addEventListener('streaming_answer_chunk', (ev) => {
+      const payload = parse<string>(ev as MessageEvent)
+      if (payload) geminiResponse.value += payload
+    })
+
+    // Receive sources as they become available
+    es.addEventListener('sources_update', (ev) => {
+      const payload = parse<CitationSource[]>(ev as MessageEvent)
+      console.log('sources_update', payload)
+      if (payload && Array.isArray(payload)) {
+        sources.value = payload
+      }
+    })
+
+    es.addEventListener('streaming_answer_end', (ev) => {
+      const last = feedItems.value[feedItems.value.length - 1]
+      if (last) last.status = 'done'
+      isLoading.value = false
+      isDone.value = true
+      const elapsed_time = parse<{ message?: string; elapsed_time_seconds: number }>(
+        ev as MessageEvent,
+      )
+      if (elapsed_time?.elapsed_time_seconds) {
+        responseTime.value = elapsed_time.elapsed_time_seconds
+      }
+      if (es) {
+        es.close()
+        es = null
+      }
+    })
+
+    es.onerror = () => {
+      error.value = 'Something went wrong while streaming the answer.'
+      isLoading.value = false
+      if (es) {
+        es.close()
+        es = null
+      }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (e: any) {
+    error.value = e?.message || 'Something went wrong while starting the stream.'
+    isLoading.value = false
+  }
+}
+
+onBeforeUnmount(() => {
+  if (es) es.close()
 })
-
-const isExpanded = ref(false)
-const shouldShowToggle = computed(() => queryText.value.length > 186)
 </script>
 
 <template>
-  <div class="bg-background text-foreground min-h-dvh antialiased">
-    <main class="w-full px-4 py-10 md:px-20">
+  <div class="bg-background text-foreground min-h-dvh w-full antialiased">
+    <main class="w-full px-4 py-10 md:px-16">
       <!-- Back button -->
-      <button
-        @click="goBack"
-        class="text-muted-foreground hover:text-foreground mb-2 flex cursor-pointer items-center gap-2 rounded-lg text-sm transition-all duration-200"
-      >
-        <Icon name="arrow-left" class="h-4 w-4" />
-        <span>Back</span>
-      </button>
+      <div class="mb-2 flex w-full items-baseline justify-between">
+        <button
+          @click="goBack"
+          class="text-muted-foreground hover:text-brand flex cursor-pointer items-center gap-2 rounded-lg text-sm transition-all duration-200"
+        >
+          <Icon name="arrow-left" class="h-4 w-4" />
+          <span>Back</span>
+        </button>
+        <Icon
+          @click="setTheme(!dark)"
+          :name="dark ? 'light-theme' : 'dark-theme'"
+          class="fill-foreground hover:fill-brand/90 active:fill-brand/90 focus:fill-brand/90 dark:hover:fill-brand/100 h-5 w-5 cursor-pointer transition-transform active:translate-y-px active:scale-98"
+        />
+      </div>
 
-      <div class="grid w-full grid-cols-1 gap-24 lg:grid-cols-12">
-        <!-- Main content -->
-        <section class="w-full lg:col-span-8">
+      <div class="grid w-full grid-cols-1 gap-8 lg:grid-cols-4">
+        <section class="w-[90%] lg:col-span-3">
           <!-- Query -->
           <div class="mt-4 mb-6 w-full space-y-3">
             <div class="group relative" :class="{ 'pb-6': shouldShowToggle }">
@@ -108,95 +390,99 @@ const shouldShowToggle = computed(() => queryText.value.length > 186)
             </div>
           </div>
 
-          <!-- Answer (flattened, Perplexity-like) -->
           <section id="answerSection" class="space-y-4">
             <header class="flex items-center justify-between">
-              <div class="text-muted-foreground flex items-center justify-between">
-                <div class="flex items-center gap-1">
-                  <Icon name="pinpoint-dark" class="h-4 w-4" />
+              <div class="text-muted-foreground flex w-full items-baseline justify-between">
+                <div class="flex items-center gap-2">
+                  <Icon name="pinpoint-dark" :class="['h-4 w-4', !isDone ? 'pin-rotate' : '']" />
                   <span id="answer-label" class="text-foreground text-sm font-semibold"
                     >Answer</span
                   >
+                </div>
+                <div
+                  v-if="responseTime"
+                  class="text-muted-foreground flex items-center gap-1 text-xs"
+                >
+                  <Icon name="clock" class="h-3 w-3" />
+                  <span>{{ responseTime }}s</span>
                 </div>
               </div>
             </header>
 
             <div class="border-line-secondary text-foreground border-t pt-4 leading-7">
-              <p class="mb-4">
-                Wrap your table in a scroll container and make the header sticky so it stays pinned
-                while rows scroll underneath. Give header cells a solid background and a higher
-                stacking order to avoid bleed-through and ensure smooth separation
-                <a
-                  href="#src-2"
-                  class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                  >[2]</a
-                >.
-              </p>
-
-              <div class="text-muted-foreground mb-3 flex items-center gap-2 text-[13px]">
-                <svg
-                  class="text-muted-foreground h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                  />
-                </svg>
-                <span class="font-medium">Approach</span>
+              <div v-if="error" class="mb-3 text-sm text-red-500">
+                {{ error }}
               </div>
-              <ul class="text-foreground ml-5 list-disc space-y-1 text-[15px]">
-                <li>
-                  Wrap the table with a div that has a fixed height and
-                  <code class="bg-fill rounded px-1 py-0.5 text-[13px]">overflow-y-auto</code>.
-                </li>
-                <li>
-                  Apply <code class="bg-fill rounded px-1 py-0.5 text-[13px]">sticky top-0</code> to
-                  <code class="bg-fill rounded px-1 py-0.5 text-[13px]">&lt;thead&gt;</code> or
-                  header cells and set a solid background
-                  <a
-                    href="#src-2"
-                    class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                    >[2]</a
-                  >.
-                </li>
-                <li>
-                  Use a subtle bottom shadow or divider for depth and set
-                  <code class="bg-fill rounded px-1 py-0.5 text-[13px]">z-10</code> on header cells
-                  <a
-                    href="#src-4"
-                    class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                    >[4]</a
-                  >.
-                </li>
-                <li>
-                  If you're virtualizing rows, keep the header outside the scrollable region and
-                  align columns via grid or measured widths
-                  <a
-                    href="#src-3"
-                    class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                    >[3]</a
-                  >.
-                </li>
-              </ul>
 
-              <p class="mt-4">
-                For virtualization or dynamic content, keep the header separate from the scroll
-                container and sync column widths with CSS grid or measured sizes
-                <a
-                  href="#src-3"
-                  class="text-muted-foreground hover:text-foreground align-baseline text-xs underline"
-                  >[3]</a
-                >.
-              </p>
+              <!-- Event feed -->
+              <template v-else>
+                <div class="event-feed-container">
+                  <transition-group
+                    v-if="!isDone"
+                    name="fade-slide"
+                    tag="ol"
+                    class="feed-timeline relative space-y-4"
+                  >
+                    <li
+                      v-for="item in feedItems"
+                      :key="item.id"
+                      class="feed-item flex items-start gap-3"
+                    >
+                      <span
+                        class="relative z-10 mt-0.5 inline-flex h-5 w-5 items-center justify-center"
+                      >
+                        <template v-if="item.status === 'done'">
+                          <!-- Static grey dot for completed step -->
+                          <span
+                            class="pulse-dot is-static text-muted-foreground"
+                            aria-hidden="true"
+                          ></span>
+                        </template>
+                        <template v-else>
+                          <!-- Animated brand dot for active step -->
+                          <span
+                            class="pulse-dot force-animate text-brand"
+                            role="status"
+                            aria-label="loading"
+                          ></span>
+                        </template>
+                      </span>
+
+                      <div class="flex-1">
+                        <div class="text-sm">
+                          <ShinyText
+                            :text="item.title"
+                            :disabled="item.status === 'done'"
+                            :speed="1"
+                            :class="[
+                              'font-medium',
+                              item.status === 'done' ? 'text-muted-foreground' : '',
+                            ]"
+                          />
+                        </div>
+                        <div v-if="item.tags?.length" class="mt-2 flex flex-wrap gap-2">
+                          <span
+                            v-for="t in item.tags"
+                            :key="t"
+                            class="border-line-secondary bg-fill rounded-full border px-2 py-0.5 text-xs"
+                            >{{ t }}</span
+                          >
+                        </div>
+                      </div>
+                    </li>
+                  </transition-group>
+
+                  <!-- Answer content -->
+                  <div
+                    v-if="geminiResponse"
+                    class="markdown-content text-foreground space-y-4"
+                    v-html="renderedGeminiResponse"
+                  ></div>
+                </div>
+              </template>
             </div>
 
-            <!-- Moved Copy to end -->
-            <div class="border-line-secondary border-t pt-3">
+            <div v-if="isDone" class="border-line-secondary border-t pt-3">
               <div class="flex items-center justify-end">
                 <button
                   id="copyAnswer"
@@ -211,51 +497,462 @@ const shouldShowToggle = computed(() => queryText.value.length > 186)
         </section>
 
         <!-- Sidebar: Sources -->
-        <aside class="space-y-4 lg:sticky lg:top-8 lg:col-span-4">
-          <div class="flex items-center justify-between">
+        <aside class="mt-4 w-full lg:col-span-1">
+          <div class="mb-4 flex items-center justify-between gap-4">
             <h2 class="text-xl font-semibold tracking-tight">Sources</h2>
             <div class="flex flex-wrap items-center justify-between gap-3 md:gap-4">
+              <div v-if="isLoading && !selectedRepo" class="animate-pulse">
+                <div
+                  class="border-line-secondary bg-fill inline-flex items-center gap-1 rounded-lg border px-2 py-1"
+                >
+                  <div class="bg-line-secondary h-4 w-2 rounded"></div>
+                  <div class="bg-line-secondary h-4 w-20 rounded"></div>
+                </div>
+              </div>
               <a
-                href="#"
-                class="border-line-secondary bg-fill text-foreground hover:border-brand/30 hover:bg-brand/5 inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-sm transition-transform active:scale-98"
+                v-else
+                :href="`https://github.com/${selectedRepo}`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="border-line-secondary bg-fill text-foreground hover:border-brand/30 hover:bg-brand/5 inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-sm transition-transform active:scale-98"
               >
                 <Icon
                   name="github"
                   class="fill-foreground focus:fill-brand/90 h-4 w-4 cursor-pointer transition-transform"
                 />
-                <span class="font-medium">{{ selectedRepo }}</span>
+                <span class="line-clamp-1 max-w-36 overflow-hidden font-medium text-ellipsis">
+                  {{ selectedRepo }}
+                </span>
               </a>
             </div>
           </div>
 
-          <!-- Source item -->
-          <a
-            id="src-1"
-            href="#"
-            class="border-line-secondary bg-background hover:bg-fill block rounded-xl border transition"
-          >
-            <div class="p-4">
-              <div class="flex items-start gap-4">
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="text-foreground font-medium">WASasquatch</span>
-
-                    <span class="text-muted-foreground text-xs">Issue #1289</span>
-                  </div>
-                  <div class="text-muted-foreground mt-1 line-clamp-2 text-[13px]">
-                    There is no scale for the upscaling node for model based upscaling. This means
-                    most good models will be forcing...
-                  </div>
-                  <div class="text-muted-foreground mt-2 flex items-center gap-2 text-xs">
-                    <Icon name="github" class="h-3 w-3" />
-                    <span>shadcn-ui/ui</span>
+          <!-- Source items -->
+          <div v-if="isLoading && sources.length === 0" class="space-y-3">
+            <!-- Skeleton loading states for sources -->
+            <div v-for="n in 5" :key="`skeleton-${n}`" class="animate-pulse">
+              <div class="border-line-secondary bg-fill block rounded-xl border shadow-xs">
+                <div class="p-4">
+                  <div class="flex items-start gap-4">
+                    <div class="min-w-0 flex-1 space-y-3">
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="bg-line-secondary h-4 rounded-full" style="width: 70%"></div>
+                        <div class="bg-line-secondary h-3 w-16 rounded-full"></div>
+                      </div>
+                      <div class="space-y-2">
+                        <div class="bg-line-secondary h-3 w-full rounded-full"></div>
+                        <div class="bg-line-secondary h-3 rounded-full" style="width: 80%"></div>
+                      </div>
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                          <div class="bg-line-secondary h-3 w-3 rounded-full"></div>
+                          <div class="bg-line-secondary h-3 w-20 rounded-full"></div>
+                        </div>
+                        <div class="bg-line-secondary h-4 w-8 rounded"></div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </a>
+          </div>
+          <div
+            v-else-if="!isLoading && sources.length === 0"
+            class="border-line-secondary bg-fill h-full rounded-xl border text-center"
+          >
+            <div class="flex h-full flex-col items-center justify-center gap-3">
+              <Icon name="sad-face" class="text-muted-foreground h-8 w-8" />
+
+              <p class="text-foreground text-sm font-medium">No sources found</p>
+            </div>
+          </div>
+          <ul v-else-if="sources.length > 0" class="space-y-3">
+            <li v-for="(s, idx) in sources" :key="s.id + '-' + idx">
+              <a :href="s.url" target="_blank" rel="noopener noreferrer">
+                <div
+                  class="border-line-secondary bg-fill hover:border-brand/30 hover:bg-brand/5 rounded-xl border p-4 transition"
+                >
+                  <div class="flex items-start gap-4">
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-baseline justify-between">
+                        <span class="text-foreground line-clamp-2 font-medium text-ellipsis">
+                          {{ s.title }}
+                        </span>
+                        <span class="text-muted-foreground text-xs">#{{ s.issue_number }}</span>
+                      </div>
+                      <div
+                        v-if="s.preview"
+                        class="text-muted-foreground mt-1 line-clamp-2 text-[13px]"
+                      >
+                        {{ s.preview }}
+                      </div>
+                      <div class="text-muted-foreground mt-2 flex items-center gap-2 text-xs">
+                        <Icon name="github" class="text-foreground fill-foreground h-3 w-3" />
+                        <span>{{ selectedRepo }}</span>
+                        <span
+                          class="border-line-secondary text-foreground bg-line-secondary ml-auto rounded-full px-1.5 py-0.5 text-[10px]"
+                          >{{ idx + 1 }}</span
+                        >
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </a>
+            </li>
+          </ul>
         </aside>
       </div>
     </main>
   </div>
 </template>
+
+<style scoped>
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 200ms ease;
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: var(--pulse-size, 8px);
+  height: var(--pulse-size, 8px);
+}
+
+.pulse-dot::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 200%;
+  height: 200%;
+  border-radius: 9999px;
+  background-color: currentColor;
+  opacity: 0.22;
+  transform: translate(-50%, -50%);
+  animation: pulse-ring var(--pulse-duration, 1.25s) cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.pulse-dot::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  background-color: currentColor;
+  box-shadow: 0 0 6px color-mix(in oklab, currentColor 35%, transparent);
+  animation: pulse-dot var(--pulse-duration, 1.25s) cubic-bezier(0.455, 0.03, 0.515, 0.955) -0.4s
+    infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: translate(-50%, -50%) scale(0.33);
+    opacity: 0.22;
+  }
+  80%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-dot {
+  0% {
+    transform: scale(0.8);
+  }
+  50% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(0.8);
+  }
+}
+
+.pulse-dot.is-static::before,
+.pulse-dot.is-static::after {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot:not(.force-animate)::before,
+  .pulse-dot:not(.force-animate)::after {
+    animation: none;
+  }
+}
+
+/* Timeline connectors between dots */
+.feed-timeline {
+  --feed-gap: 16px;
+  --connector-x: 10px;
+  --connector-gap: 6px;
+}
+
+.feed-item {
+  position: relative;
+}
+
+.feed-item::before,
+.feed-item::after {
+  content: '';
+  position: absolute;
+  left: var(--connector-x);
+  width: 2px;
+  background: var(--color-line-secondary);
+  z-index: 0;
+}
+
+.feed-item::before {
+  top: calc(-0.5 * var(--feed-gap));
+  bottom: calc(12px + var(--connector-gap));
+}
+
+.feed-item::after {
+  margin-top: 1px;
+  top: calc(12px + var(--connector-gap));
+  bottom: calc(-0.5 * var(--feed-gap));
+}
+
+/* Hide extraneous segments at the ends */
+.feed-timeline > .feed-item:first-child::before {
+  display: none;
+}
+.feed-timeline > .feed-item:last-child::after {
+  display: none;
+}
+
+/* For completed steps, hide the pulse ring entirely */
+.pulse-dot.is-static::before {
+  display: none;
+}
+.pulse-dot.is-static::after {
+  animation: none;
+}
+
+/* Local icon spin for Answer header */
+@keyframes pin-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.pin-rotate {
+  animation: pin-rotate 1s linear infinite;
+}
+
+/* Event feed fade-in animation */
+.event-feed-container {
+  animation: feed-fade-in 0.4s ease-out;
+}
+
+@keyframes feed-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* More ChatGPT-like styling */
+:deep(.markdown-content pre) {
+  background-color: #f8f8f8;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  overflow-x: auto;
+  font-family:
+    'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #24292f;
+}
+
+:global(.dark) :deep(.markdown-content pre) {
+  background-color: #0d1117;
+  border-color: #30363d;
+  color: #e6edf3;
+}
+
+:deep(.markdown-content code) {
+  background-color: var(--color-fill);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family:
+    'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.875rem;
+  color: var(--color-foreground);
+  border: 1px solid var(--color-line-secondary);
+}
+
+:deep(.markdown-content pre code) {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  font-size: 13px;
+}
+
+:global(.dark) :deep(.markdown-content code) {
+  background-color: var(--color-line-secondary);
+  border-color: var(--color-line-secondary);
+}
+
+:global(.dark) :deep(.markdown-content pre code) {
+  background-color: transparent;
+  border: none;
+}
+
+/* Markdown heading styles - only within .markdown-content */
+:deep(.markdown-content h1) {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: hsl(var(--color-foreground));
+}
+
+:deep(.markdown-content h2) {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+
+  color: hsl(var(--color-foreground));
+}
+
+:deep(.markdown-content h3) {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
+
+  color: hsl(var(--color-foreground));
+}
+
+:deep(.markdown-content h4) {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+
+  color: hsl(var(--color-foreground));
+}
+
+:deep(.markdown-content h5) {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.5;
+
+  color: hsl(var(--color-foreground));
+}
+
+:deep(.markdown-content h6) {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+
+  color: hsl(var(--color-muted-foreground));
+}
+
+/* Paragraph and list spacing - only apply to markdown content */
+:deep(.markdown-content p) {
+  line-height: 1.6;
+}
+
+:deep(.markdown-content ul) {
+  padding-left: 1.5rem;
+
+  list-style-type: disc;
+}
+
+:deep(.markdown-content ol) {
+  padding-left: 1.5rem;
+
+  list-style-type: decimal;
+}
+
+:deep(.markdown-content ul ul) {
+  list-style-type: circle;
+}
+
+:deep(.markdown-content ul ul ul) {
+  list-style-type: square;
+}
+
+:deep(.markdown-content ol ol) {
+  list-style-type: lower-alpha;
+}
+
+:deep(.markdown-content ol ol ol) {
+  list-style-type: lower-roman;
+}
+
+:deep(.markdown-content li) {
+  line-height: 1.6;
+  margin: 0.75rem 0;
+  display: list-item;
+}
+
+:deep(.markdown-content blockquote) {
+  border-left: 4px solid hsl(var(--color-line-secondary));
+  padding-left: 1rem;
+  color: hsl(var(--color-muted-foreground));
+  font-style: italic;
+}
+
+:deep(.markdown-content strong) {
+  font-weight: 600;
+  color: hsl(var(--color-foreground));
+}
+
+:deep(.markdown-content strong) {
+  font-weight: 600;
+  color: hsl(var(--color-foreground));
+}
+
+/* Link styles inside markdown content */
+:deep(.markdown-content a) {
+  color: var(--color-brand);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition:
+    color 150ms ease,
+    text-decoration-color 150ms ease;
+}
+
+:deep(.markdown-content a:hover) {
+  text-decoration-color: color-mix(in oklab, var(--color-brand) 60%, transparent);
+}
+
+:deep(.markdown-content a.citation-link) {
+  color: white;
+  text-decoration: none;
+  background-color: var(--color-brand);
+  opacity: 0.9;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: 0 2px;
+  font-size: 0.85em;
+  line-height: 1;
+  vertical-align: baseline;
+}
+
+:deep(.markdown-content a.citation-link:hover) {
+  background-color: var(--color-brand);
+  opacity: 0.7;
+}
+
+:deep(.markdown-content a.citation-link:focus-visible) {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+</style>

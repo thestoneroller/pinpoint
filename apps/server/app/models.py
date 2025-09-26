@@ -12,7 +12,7 @@ class IssueQueryResult(BaseModel):
 
 class SearchRequest(BaseModel):
     repo: Optional[Annotated[str, Query(pattern=r"^[^/\s]+/[^/\s]+$")]] = None
-    query: Annotated[str, Query(min_length=30)]
+    query: Annotated[str, Query(min_length=15)]
 
 
 class CommentData(TypedDict):

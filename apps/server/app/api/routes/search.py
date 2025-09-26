@@ -1,6 +1,6 @@
 import time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ...models import SearchRequest
@@ -20,25 +20,74 @@ async def search_stream(search_request: SearchRequest, request: Request):
     queries_response = await generate_issue_queries(
         request=request, user_query=search_request.query
     )
+
+    # Check if Gemini determined the query is irrelevant
+    if queries_response.technology == "irrelevant" and queries_response.queries == [
+        "irrelevant"
+    ]:
+        yield event_message(
+            "query_not_relevant",
+            {
+                "message": "This query doesn't appear to be related to technical or coding issues.",
+                "reason": "The query seems to be about general knowledge, personal information, or non-technical topics.",
+                "suggested_rephrase": "Try asking about programming errors, framework issues, or development problems.",
+            },
+        )
+        return
+
     yield event_message("search_queries", data=queries_response.model_dump())
 
-    # Get repository name
+    # Determine repository with safe fallback
     if not search_request.repo:
         repo = await get_repository(technology=queries_response.technology)
     else:
-        repo_exists = await check_repo_exists(repo=search_request.repo)
-        if not repo_exists:
-            repo = await get_repository(technology=search_request.repo)
-        else:
+        try:
+            await check_repo_exists(repo=search_request.repo)
             repo = search_request.repo
+        except HTTPException as he:
+            # For invalid/non-existent repo (404/422), fall back to auto-selection
+            if he.status_code in (404, 422):
+                # Inform client we are falling back
+                yield event_message("repo_invalid", {"provided": search_request.repo})
+                repo = await get_repository(technology=queries_response.technology)
+            else:
+                # For other errors (auth/rate-limit), notify client and stop
+                yield event_message("streaming_error", {"message": he.detail})
+                return
+
+    # If still no repository could be determined, stop nicely
+    if not repo:
+        yield event_message(
+            "streaming_error",
+            {"message": "No suitable repository found for this query."},
+        )
+        return
 
     yield event_message("get_repository", {"repo": repo})
 
     # Search for issues using Github REST API
-    issues = await search_issues(repo=repo, queries=queries_response.queries)
+    try:
+        issues = await search_issues(repo=repo, queries=queries_response.queries)
+    except HTTPException as he:
+        yield event_message("streaming_error", {"message": he.detail})
+        return
+    except Exception:
+        yield event_message("streaming_error", {"message": "Failed to search issues."})
+        return
+
     yield event_message("search_issues", {"total_issues": len(issues)})
 
-    issues_with_comments = await get_issues_with_comments(repo=repo, issues=issues)
+    # Get comments
+    try:
+        issues_with_comments = await get_issues_with_comments(repo=repo, issues=issues)
+    except HTTPException as he:
+        yield event_message("streaming_error", {"message": he.detail})
+        return
+    except Exception:
+        yield event_message(
+            "streaming_error", {"message": "Failed to fetch issue comments."}
+        )
+        return
 
     total_comments = sum((len(issue["comments"]) for issue in issues_with_comments))
     yield event_message("get_issues_comments", {"total_comments": total_comments})
@@ -49,12 +98,23 @@ async def search_stream(search_request: SearchRequest, request: Request):
         {"message": "Generating AI response..."},
     )
 
-    async for text_chunk in generate_streaming_answer(
+    async for payload in generate_streaming_answer(
         request=request,
         user_query=search_request.query,
         issues_with_comments=issues_with_comments,
     ):
-        yield event_message("streaming_answer_chunk", {"text": text_chunk})
+        if isinstance(payload, dict):
+            kind = payload.get("type")
+            data = payload.get("data")
+            if kind == "answer":
+                yield event_message("streaming_answer_chunk", data)
+            elif kind == "sources":
+                yield event_message("sources_update", data)
+            elif kind == "error":
+                yield event_message("streaming_error", {"message": data})
+        else:
+            # Back-compat: if the generator yields raw text, treat as answer chunk
+            yield event_message("streaming_answer_chunk", payload)
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -68,8 +128,8 @@ async def search_stream(search_request: SearchRequest, request: Request):
     )
 
 
-@router.post("/search")
-async def search(request: Request, search_request: SearchRequest = Depends()):
+@router.get("/search")
+async def search_get(request: Request, search_request: SearchRequest = Depends()):
     return StreamingResponse(
         search_stream(search_request=search_request, request=request),
         media_type="text/event-stream",
