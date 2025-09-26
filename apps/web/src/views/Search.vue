@@ -24,9 +24,10 @@ const fontSize = computed(() => {
 
 const queryText = ref('')
 const selectedRepo = ref('')
-
 const isExpanded = ref(false)
 const shouldShowToggle = computed(() => queryText.value.length > 186)
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5173'
 
 const router = useRouter()
 
@@ -176,7 +177,7 @@ async function startSearchStream() {
     params.set('query', queryText.value)
     if (selectedRepo.value) params.set('repo', selectedRepo.value)
 
-    es = new EventSource(`/api/v1/search?${params.toString()}`)
+    es = new EventSource(`${API_BASE_URL}/api/v1/search?${params.toString()}`)
 
     const parse = <T,>(e: MessageEvent): T | null => {
       try {

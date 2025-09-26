@@ -1,9 +1,8 @@
+import inspect
 from functools import wraps
 from typing import TypeVar
-import inspect
 
 from fastapi import HTTPException
-
 from google.genai import errors as genai_errors
 
 R = TypeVar("R")
