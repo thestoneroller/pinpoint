@@ -307,6 +307,61 @@ async function startSearchStream() {
 onBeforeUnmount(() => {
   if (es) es.close()
 })
+
+// Clipboard helpers and copy handlers
+const copiedQuery = ref(false)
+const copiedAnswer = ref(false)
+
+function buildLinkedMarkdown(raw: string): string {
+  // Normalize escaped newlines
+  let text = raw.replace(/\\n/g, '\n')
+  // Convert any [1, 2] => [1][2]
+  text = text.replace(/\[\s*(\d+(?:\s*,\s*\d+)+)\s*\]/g, (_m, list) => {
+    const nums = String(list).split(/\s*,\s*/)
+    return nums.map((n: string) => `[${n}]`).join('')
+  })
+  // Convert any [#1] or #[1] => [1]
+  text = text
+    .replace(/\[\s*#\s*(\d{1,3})\s*\]/g, '[$1]')
+    .replace(/#\s*\[\s*(\d{1,3})\s*\]/g, '[$1]')
+  // Link citations to sources if available
+  if (sources.value.length) {
+    text = text.replace(/\[(\d{1,3})\]/g, (m, n) => {
+      const idx = Number(n) - 1
+      const src = sources.value[idx]
+      return src?.url ? `[${n}](${src.url})` : m
+    })
+  }
+  return text
+}
+
+async function writeClipboard(text: string) {
+  await navigator.clipboard.writeText(text)
+}
+
+async function onCopyQuery() {
+  if (!queryText.value) return
+  await writeClipboard(queryText.value)
+  copiedQuery.value = true
+  setTimeout(() => (copiedQuery.value = false), 1200)
+}
+
+async function onCopyAnswer() {
+  if (!geminiResponse.value) return
+  let markdown = buildLinkedMarkdown(geminiResponse.value)
+
+  // Add sources section if we have sources
+  if (sources.value.length > 0) {
+    markdown += '\n\n## Sources\n\n'
+    sources.value.forEach((source, idx) => {
+      markdown += `${idx + 1}. [${source.url}](${source.url})\n`
+    })
+  }
+
+  await writeClipboard(markdown)
+  copiedAnswer.value = true
+  setTimeout(() => (copiedAnswer.value = false), 1200)
+}
 </script>
 
 <template>
@@ -377,11 +432,12 @@ onBeforeUnmount(() => {
               </button>
               <button
                 id="copyQuery"
+                @click="onCopyQuery"
                 class="border-line-secondary bg-fill absolute right-0 bottom-0 flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border px-2 py-1 opacity-0 transition-all duration-150 group-hover:opacity-100"
                 :class="{ 'mb-2': !shouldShowToggle }"
               >
                 <Icon name="copy" class="fill-muted-foreground" />
-                <p class="text-xs">Copy</p>
+                <p class="text-xs">{{ copiedQuery ? 'Copied' : 'Copy' }}</p>
               </button>
             </div>
           </div>
@@ -482,10 +538,11 @@ onBeforeUnmount(() => {
               <div class="flex items-center justify-end">
                 <button
                   id="copyAnswer"
+                  @click="onCopyAnswer"
                   class="hover:border-line-secondary hover:bg-fill inline-flex cursor-pointer items-center gap-1 rounded-lg border border-transparent px-2 py-1 transition-all duration-150"
                 >
                   <Icon name="copy" class="fill-muted-foreground" />
-                  <p class="text-xs">Copy</p>
+                  <p class="text-xs">{{ copiedAnswer ? 'Copied' : 'Copy' }}</p>
                 </button>
               </div>
             </div>
