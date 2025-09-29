@@ -16,10 +16,25 @@ async def search_stream(search_request: SearchRequest, request: Request):
 
     start_time = time.time()
 
+    # Send SSE preamble to defeat proxy buffering and signal stream open
+    # The long comment chunk helps some proxies (and serverless providers) start streaming immediately
+    yield ":" + (" " * 1024) + "\n\n"
+    yield event_message("ready", {"message": "stream open"})
+
     # Use Gemini to generate 3 queries to search in Github Issues
-    queries_response = await generate_issue_queries(
-        request=request, user_query=search_request.query
-    )
+    try:
+        queries_response = await generate_issue_queries(
+            request=request, user_query=search_request.query
+        )
+    except HTTPException as he:
+        # Emit a streaming error event and stop the stream
+        yield event_message("streaming_error", {"message": he.detail})
+        return
+    except Exception:
+        yield event_message(
+            "streaming_error", {"message": "Failed to generate search queries."}
+        )
+        return
 
     # Check if Gemini determined the query is irrelevant
     if queries_response.technology == "irrelevant" and queries_response.queries == [
@@ -98,23 +113,31 @@ async def search_stream(search_request: SearchRequest, request: Request):
         {"message": "Generating AI response..."},
     )
 
-    async for payload in generate_streaming_answer(
-        request=request,
-        user_query=search_request.query,
-        issues_with_comments=issues_with_comments,
-    ):
-        if isinstance(payload, dict):
-            kind = payload.get("type")
-            data = payload.get("data")
-            if kind == "answer":
-                yield event_message("streaming_answer_chunk", data)
-            elif kind == "sources":
-                yield event_message("sources_update", data)
-            elif kind == "error":
-                yield event_message("streaming_error", {"message": data})
-        else:
-            # Back-compat: if the generator yields raw text, treat as answer chunk
-            yield event_message("streaming_answer_chunk", payload)
+    try:
+        async for payload in generate_streaming_answer(
+            request=request,
+            user_query=search_request.query,
+            issues_with_comments=issues_with_comments,
+        ):
+            if isinstance(payload, dict):
+                kind = payload.get("type")
+                data = payload.get("data")
+                if kind == "answer":
+                    yield event_message("streaming_answer_chunk", data)
+                elif kind == "sources":
+                    yield event_message("sources_update", data)
+                elif kind == "error":
+                    yield event_message("streaming_error", {"message": data})
+            else:
+                yield event_message("streaming_answer_chunk", payload)
+    except HTTPException as he:
+        yield event_message("streaming_error", {"message": he.detail})
+        return
+    except Exception:
+        yield event_message(
+            "streaming_error", {"message": "Failed to generate AI answer."}
+        )
+        return
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -134,7 +157,8 @@ async def search_get(request: Request, search_request: SearchRequest = Depends()
         search_stream(search_request=search_request, request=request),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )

@@ -2,6 +2,7 @@ from typing import AsyncGenerator
 
 import instructor
 from fastapi import Request
+from ..core.config import settings
 
 from ..exceptions.gemini_exceptions import handle_gemini_exceptions
 from ..models import IssueQueryResult, IssueWithComments, SearchResponse
@@ -72,13 +73,24 @@ SYS_PROMPT = """
 """
 
 
+def _create_llm() -> instructor.AsyncInstructor:
+    return instructor.from_provider(
+        "google/gemini-2.5-flash-lite",
+        api_key=settings.GOOGLE_API_KEY,
+        async_client=True,
+    )
+
+
 @handle_gemini_exceptions
 async def generate_issue_queries(
     *, request: Request, user_query: str
 ) -> IssueQueryResult:
     """Analyzes a user query to identify tech stack, intent, and generate GitHub search queries."""
 
-    llm: instructor.AsyncInstructor = request.state.llm
+    llm: instructor.AsyncInstructor | None = getattr(request.state, "llm", None)
+    if llm is None:
+        llm = _create_llm()
+        request.state.llm = llm
 
     response = await llm.messages.create(
         messages=[
@@ -186,7 +198,11 @@ async def generate_streaming_answer(
     """
     Generate a streaming AI response based on user query and collected GitHub data.
     """
-    llm: instructor.AsyncInstructor = request.state.llm
+
+    llm: instructor.AsyncInstructor | None = getattr(request.state, "llm", None)
+    if llm is None:
+        llm = _create_llm()
+        request.state.llm = llm
 
     prompt = ANSWER_PROMPT.format(
         user_query=user_query, issues_with_comments=issues_with_comments

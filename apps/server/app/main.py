@@ -15,7 +15,10 @@ async def lifespan(app: FastAPI):
         api_key=settings.GOOGLE_API_KEY,
         async_client=True,
     )
-    yield {"llm": llm}
+
+    app.state.llm = llm
+
+    yield
 
 
 app = FastAPI(

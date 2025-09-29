@@ -16,26 +16,21 @@ const md = markdownit({
 const maxFont = 32 // px
 const minFont = 20 // px
 const lengthForMin = 140 // after 140 chars, stop shrinking
-
 const fontSize = computed(() => {
   const len = queryText.value.length
   return Math.max(minFont, maxFont - (len / lengthForMin) * (maxFont - minFont))
 })
-
 const queryText = ref('')
 const selectedRepo = ref('')
 const isExpanded = ref(false)
 const shouldShowToggle = computed(() => queryText.value.length > 186)
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5173'
-
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const router = useRouter()
-
 const goBack = () => {
   router.go(-1)
 }
 
-// Ensure markdown links open in a new tab safely
 const defaultLinkOpen =
   md.renderer.rules.link_open ||
   function (tokens, idx, options, env, self) {
